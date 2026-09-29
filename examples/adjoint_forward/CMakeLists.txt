@@ -78,14 +78,6 @@ add_library(adjoint_forward_instantaneous_f OBJECT
   af_common_setaux.f90
   af_common_qinit.f90
 
-  fortran_source/clawpatch46_average.f90
-  fortran_source/clawpatch46_copy.f90
-  fortran_source/clawpatch46_fort_tag4coarsening.f90
-  fortran_source/clawpatch46_fort_tag4refinement.f90
-  fortran_source/clawpatch46_interpolate.f
-  fortran_source/clawpatch46_local_ghost_pack.f
-  fortran_source/clawpatch46_timeinterp.f
-
   adjoint/adjoint_psi.f90
   adjoint/adjoint_fdisc.f90
   adjoint/adjoint_initial.f90
@@ -134,5 +126,6 @@ target_include_directories(adjoint_forward_instantaneous PRIVATE
 )
 
 target_link_libraries(adjoint_forward_instantaneous PRIVATE
+  smoke2d-4DVar
   FORESTCLAW::CLAWPACK4.6
 )

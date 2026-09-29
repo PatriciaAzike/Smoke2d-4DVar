@@ -11,6 +11,14 @@ add_library(smoke2d_f OBJECT
   2d/rpn2_adjoint.f90
   2d/rpt2_adjoint.f90
   2d/src2_adjoint.f90
+
+  fortran_source/clawpatch46_average.f90
+  fortran_source/clawpatch46_copy.f90
+  fortran_source/clawpatch46_fort_tag4coarsening.f90
+  fortran_source/clawpatch46_fort_tag4refinement.f90
+  fortran_source/clawpatch46_interpolate.f
+  fortran_source/clawpatch46_local_ghost_pack.f
+  fortran_source/clawpatch46_timeinterp.f
 )
 
 # Needed for modules
