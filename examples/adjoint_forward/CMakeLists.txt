@@ -6,14 +6,6 @@ add_library(adjoint_forward_f OBJECT
   af_common_setaux.f90
   af_common_qinit.f90
 
-  fortran_source/clawpatch46_average.f90
-  fortran_source/clawpatch46_copy.f90
-  fortran_source/clawpatch46_fort_tag4coarsening.f90
-  fortran_source/clawpatch46_fort_tag4refinement.f90
-  fortran_source/clawpatch46_interpolate.f
-  fortran_source/clawpatch46_local_ghost_pack.f
-  fortran_source/clawpatch46_timeinterp.f
-
   adjoint/adjoint_psi.f90 
   adjoint/adjoint_fdisc.f90 
   adjoint/adjoint_initial.f90
@@ -38,7 +30,7 @@ add_library(adjoint_forward_f OBJECT
 
 add_library(adjoint_forward_common OBJECT 
   af_overlap_patch.c
-  user_run_2.c
+  user_run.c
 
   adjoint/adjoint.cpp
   adjoint/adjoint_options.c 
