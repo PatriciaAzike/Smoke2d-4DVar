@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2012-2021 Carsten Burstedde, Donna Calhoun
+Copyright (c) 2012-2026 Carsten Burstedde, Donna Calhoun, Patricia Azike
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -23,10 +23,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef SMOKE3D_OPTIONS_H
-#define SMOKE3D_OPTIONS_H
-
-#include <fclaw_base.h>
+#ifndef SMOKE2D_GAUGES_H
+#define SMOKE2D_GAUGES_H
 
 #ifdef __cplusplus
 extern "C"
@@ -34,33 +32,36 @@ extern "C"
 #endif
 
 struct fclaw_global;
+struct fclaw_gauge;
+struct fclaw_patch;
+struct fclaw_block;
 
-typedef struct smoke3d_options
-{
+void smoke2d_read_gauges_data(struct fclaw_global *glob, 
+                              struct fclaw_gauge **gauges, 
+                              int *num, int *dim);
 
-    int time_dependent_velocity;
-    int forward_model;
-    int adjoint_model;
+void smoke2d_create_gauge_files(struct fclaw_global *glob, 
+                                struct fclaw_gauge *gauges, 
+                                int num_gauges);
 
-    int is_registered;
-}
-smoke3d_options_t;
-
-
-
-smoke3d_options_t*  smoke3d_options_register (fclaw_app_t * app,
-                                              const char *section,
-                                              const char *configfile);
-
-void smoke3d_options_store (struct fclaw_global* glob, 
-                            smoke3d_options_t* smoke3d_opt);
-
-const smoke3d_options_t* smoke3d_get_options(struct fclaw_global* glob);
+void smoke2d_gauge_normalize_coordinates(struct fclaw_global *glob, 
+                                         struct fclaw_block *block,
+                                         int blockno, 
+                                         struct fclaw_gauge *g,
+                                         double *xc, double *yc, double *zc);
 
 
+void smoke2d_gauge_update(struct fclaw_global* glob, 
+                          struct fclaw_block* block,
+                          struct fclaw_patch* patch, 
+                          int blockno, int patchno,
+                          double tcurr, struct fclaw_gauge *g);
+
+void smoke2d_print_gauges(struct fclaw_global *glob, 
+                          struct fclaw_gauge *gauge);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* SMOKE3D_OPTIONS_H */
+#endif

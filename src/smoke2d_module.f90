@@ -1,4 +1,4 @@
-module smoke3d_module
+module smoke2d_module
     implicit none
       
 
@@ -18,10 +18,10 @@ module smoke3d_module
     integer, parameter :: n_points = 1
     !double precision, allocatable :: uv(:,:)
 
-end module smoke3d_module
+end module smoke2d_module
 
 subroutine generate_data(m)
-    use smoke3d_module
+    use smoke2d_module
     implicit none
 
     integer m
@@ -40,7 +40,7 @@ subroutine generate_data(m)
 end subroutine generate_data    
 
 double precision function delta(r)
-    use smoke3d_module, only : pi, eps
+    use smoke2d_module, only : pi, eps
     implicit none
 
     double precision r

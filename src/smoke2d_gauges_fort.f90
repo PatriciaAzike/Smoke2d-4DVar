@@ -1,4 +1,4 @@
-SUBROUTINE smoke3d_update_gauge (blockno, mx,my,mbc,meqn, & 
+SUBROUTINE smoke2d_update_gauge (blockno, mx,my,mbc,meqn, & 
     xlower,ylower, dx,dy,q,xc,yc,qvar)
 
     implicit none
@@ -57,4 +57,4 @@ SUBROUTINE smoke3d_update_gauge (blockno, mx,my,mbc,meqn, &
         qvar = 0.d0
     endif
 
-END SUBROUTINE smoke3d_update_gauge
+END SUBROUTINE smoke2d_update_gauge

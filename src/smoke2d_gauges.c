@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2012-2022 Carsten Burstedde, Donna Calhoun
+Copyright (c) 2012-2026 Carsten Burstedde, Donna Calhoun, Patricia Azike
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -23,7 +23,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include "smoke3d_gauges.h"
+#include "smoke2d_gauges.h"
 
 #include "fclaw_gauges.h"
 
@@ -40,15 +40,15 @@ extern "C"
 {
 #endif
 
-typedef struct smoke3d_user
+typedef struct smoke2d_user
 {
     int level;
     double tcurr;
     double qvar;  /* Store concentration */
-} smoke3d_user_t;
+} smoke2d_user_t;
 
 
-void smoke3d_read_gauges_data(fclaw_global_t *glob, 
+void smoke2d_read_gauges_data(fclaw_global_t *glob, 
                               fclaw_gauge_t **gauges,
                               int *num_gauges, int *dim)
 {
@@ -145,7 +145,7 @@ void smoke3d_read_gauges_data(fclaw_global_t *glob,
 /* This function can be virtualized so the user can specify their 
    gauge output */
 
-void smoke3d_create_gauge_files(fclaw_global_t *glob, 
+void smoke2d_create_gauge_files(fclaw_global_t *glob, 
                                 fclaw_gauge_t *gauges,
                                 int num_gauges)
 {
@@ -181,7 +181,7 @@ void smoke3d_create_gauge_files(fclaw_global_t *glob,
     }
 }
 
-void smoke3d_gauge_normalize_coordinates(fclaw_global_t *glob, 
+void smoke2d_gauge_normalize_coordinates(fclaw_global_t *glob, 
                                          fclaw_block_t *block,
                                          int blockno, 
                                          fclaw_gauge_t *g,
@@ -201,7 +201,7 @@ void smoke3d_gauge_normalize_coordinates(fclaw_global_t *glob,
 
 
 
-void smoke3d_gauge_update(fclaw_global_t* glob,
+void smoke2d_gauge_update(fclaw_global_t* glob,
                           fclaw_block_t* block,
                           fclaw_patch_t* patch, 
                           int blockno, 
@@ -252,12 +252,12 @@ void smoke3d_gauge_update(fclaw_global_t* glob,
     /* Interpolate q variables and aux variables (bathy only for now)
        to gauge location */
     double qvar;
-    SMOKE3D_UPDATE_GAUGE(&blockno, &mx,&my,&mbc,&meqn,&xlower,&ylower,
+    SMOKE2D_UPDATE_GAUGE(&blockno, &mx,&my,&mbc,&meqn,&xlower,&ylower,
                          &dx,&dy,q,&xc,&yc,&qvar);
                 
     /* Store qvar, avar in gauge buffers;  Anything stored will be printed
        in print_buffers */
-    smoke3d_user_t *guser = FCLAW_ALLOC(smoke3d_user_t,1);
+    smoke2d_user_t *guser = FCLAW_ALLOC(smoke2d_user_t,1);
 
     guser->level = patch->level;
     guser->tcurr = tcurr;
@@ -269,12 +269,12 @@ void smoke3d_gauge_update(fclaw_global_t* glob,
 }
 
 
-void smoke3d_print_gauges(fclaw_global_t *glob, 
+void smoke2d_print_gauges(fclaw_global_t *glob, 
                           fclaw_gauge_t *gauge) 
 {
     /* This assumes on buffers be organized as an array; entries
        start at 0 and with kmax-1 */
-    smoke3d_user_t **gauge_buffer;
+    smoke2d_user_t **gauge_buffer;
     int kmax;
     fclaw_gauges_get_buffer(glob,gauge,&kmax,(void***) &gauge_buffer);
 
@@ -286,7 +286,7 @@ void smoke3d_print_gauges(fclaw_global_t *glob,
     FILE *fp = fopen(filename, "a");
     for(int k = 0; k < kmax; k++)
     {
-        smoke3d_user_t *guser = gauge_buffer[k];
+        smoke2d_user_t *guser = gauge_buffer[k];
 
         double q = guser->qvar;
         q = fabs(q) < 1e-99 ? 0 : q; /* For reading in Matlab */

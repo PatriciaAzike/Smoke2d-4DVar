@@ -1,6 +1,6 @@
 subroutine src2_adjoint(maxmx,maxmy,meqn,mbc,mx,my, & 
     xlower,ylower,dx,dy,q,maux,aux,t,dt)
-    use smoke3d_module
+    use smoke2d_module
     implicit none
 
     integer maxmx, maxmy, meqn, mbc, mx, my, maux

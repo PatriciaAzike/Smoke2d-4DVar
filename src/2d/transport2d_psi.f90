@@ -1,5 +1,5 @@
 double precision function psi(xd,yd,zd,t)
-   use smoke3d_module, only : pi
+   use smoke2d_module, only : pi
    implicit none
 
    double precision xd, yd, zd, t

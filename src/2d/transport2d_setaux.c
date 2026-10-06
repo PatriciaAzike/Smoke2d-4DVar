@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2012-2024 Carsten Burstedde, Donna Calhoun, Patricia Azike
+Copyright (c) 2012-2026 Carsten Burstedde, Donna Calhoun, Patricia Azike
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -23,7 +23,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include "../smoke3d_options.h"
+#include "../smoke2d_options.h"
 
 #include "transport2d.h"
 
@@ -67,7 +67,7 @@ void transport2d_setaux(fclaw_global_t *glob,
 
     /* If the velocity field is time dependent, b4step2 will set the velocity.  
        No need to do it here. */
-    const smoke3d_options_t *smoke_opt = smoke3d_get_options(glob);
+    const smoke2d_options_t *smoke_opt = smoke2d_get_options(glob);
     double t = 0;
     if (smoke_opt->time_dependent_velocity == 0)
         TRANSPORT2D_SETAUX_VELOCITY(&blockno, &mx, &my, &mbc,

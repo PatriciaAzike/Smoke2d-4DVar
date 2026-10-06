@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2012-2024 Carsten Burstedde, Donna Calhoun, Patricia Azike
+Copyright (c) 2012-2026 Carsten Burstedde, Donna Calhoun, Patricia Azike
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -198,9 +198,9 @@ void MAP_BRICK2LATLONG(const int* blockno,const double* xc, double* yc,
 
 
 
-#define SMOKE3D_UPDATE_GAUGE FCLAW_F77_FUNC(smoke3d_update_gauge, \
-                                            SMOKE3D_UPDATE_GAUGE)
-void SMOKE3D_UPDATE_GAUGE (int* blockno, int* mx,int* my, 
+#define SMOKE2D_UPDATE_GAUGE FCLAW_F77_FUNC(smoke2d_update_gauge, \
+                                            SMOKE2D_UPDATE_GAUGE)
+void SMOKE2D_UPDATE_GAUGE (int* blockno, int* mx,int* my, 
                            int* mbc, int* meqn, 
                            double* xlower,double* ylower, 
                            double* dx, double* dy, 

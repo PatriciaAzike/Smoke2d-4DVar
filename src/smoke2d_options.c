@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2012-2024 Carsten Burstedde, Donna Calhoun, Patricia Azike
+Copyright (c) 2012-2026 Carsten Burstedde, Donna Calhoun, Patricia Azike
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -23,7 +23,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include "smoke3d_options.h"
+#include "smoke2d_options.h"
 
 #include <fclaw_global.h>
 #include <fclaw_options.h>
@@ -31,7 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 static void *
-smoke3d_register (smoke3d_options_t *smoke_opt, sc_options_t * opt)
+smoke2d_register (smoke2d_options_t *smoke_opt, sc_options_t * opt)
 {
     sc_options_add_bool (opt, 0, "time-dependent-velocity", 
                          &smoke_opt->time_dependent_velocity, 0,
@@ -53,13 +53,13 @@ smoke3d_register (smoke3d_options_t *smoke_opt, sc_options_t * opt)
 
 static
 fclaw_exit_type_t
-smoke3d_postprocess (smoke3d_options_t *smoke_opt)
+smoke2d_postprocess (smoke2d_options_t *smoke_opt)
 {
     return FCLAW_NOEXIT;
 }
 
 static fclaw_exit_type_t
-smoke3d_check (smoke3d_options_t *smoke_opt)
+smoke2d_check (smoke2d_options_t *smoke_opt)
 {
     /* Nothing to check ? */
     return FCLAW_NOEXIT;
@@ -67,7 +67,7 @@ smoke3d_check (smoke3d_options_t *smoke_opt)
 
 
 static void
-smoke3d_destroy (smoke3d_options_t *smoke_opt)
+smoke2d_destroy (smoke2d_options_t *smoke_opt)
 {
 }
 
@@ -77,15 +77,15 @@ smoke3d_destroy (smoke3d_options_t *smoke_opt)
 static void*
 options_register (fclaw_app_t * app, void *package, sc_options_t * opt)
 {
-    smoke3d_options_t *smoke3d_opt;
+    smoke2d_options_t *smoke2d_opt;
 
     FCLAW_ASSERT (app != NULL);
     FCLAW_ASSERT (package != NULL);
     FCLAW_ASSERT (opt != NULL);
 
-    smoke3d_opt = (smoke3d_options_t*) package;
+    smoke2d_opt = (smoke2d_options_t*) package;
 
-    return smoke3d_register(smoke3d_opt,opt);
+    return smoke2d_register(smoke2d_opt,opt);
 }
 
 static fclaw_exit_type_t
@@ -96,50 +96,50 @@ options_postprocess (fclaw_app_t * a, void *package, void *registered)
     FCLAW_ASSERT (registered == NULL);
 
     /* errors from the key-value options would have showed up in parsing */
-    smoke3d_options_t *smoke_opt = (smoke3d_options_t *) package;
+    smoke2d_options_t *smoke_opt = (smoke2d_options_t *) package;
 
     /* post-process this package */
     FCLAW_ASSERT(smoke_opt->is_registered);
 
     /* Convert strings to arrays */
-    return smoke3d_postprocess (smoke_opt);
+    return smoke2d_postprocess (smoke_opt);
 }
 
 static fclaw_exit_type_t
 options_check(fclaw_app_t *app, void *package,void *registered)
 {
-    smoke3d_options_t           *smoke_opt;
+    smoke2d_options_t           *smoke_opt;
 
     FCLAW_ASSERT (app != NULL);
     FCLAW_ASSERT (package != NULL);
     FCLAW_ASSERT(registered == NULL);
 
-    smoke_opt = (smoke3d_options_t*) package;
+    smoke_opt = (smoke2d_options_t*) package;
 
-    return smoke3d_check(smoke_opt);
+    return smoke2d_check(smoke_opt);
 }
 
 
 static void
 options_destroy (fclaw_app_t * app, void *package, void *registered)
 {
-    smoke3d_options_t *smoke_opt;
+    smoke2d_options_t *smoke_opt;
 
     FCLAW_ASSERT (app != NULL);
     FCLAW_ASSERT (package != NULL);
     FCLAW_ASSERT (registered == NULL);
 
-    smoke_opt = (smoke3d_options_t*) package;
+    smoke_opt = (smoke2d_options_t*) package;
     FCLAW_ASSERT (smoke_opt->is_registered);
 
-    smoke3d_destroy (smoke_opt);
+    smoke2d_destroy (smoke_opt);
 
     FCLAW_FREE (smoke_opt);
 }
 
 
 static const
-fclaw_app_options_vtable_t smoke3d_options_vtable =
+fclaw_app_options_vtable_t smoke2d_options_vtable =
 {
     options_register,
     options_postprocess,
@@ -169,14 +169,14 @@ fc2d_clawpack46_options_t*  fc2d_clawpack46_options_register (fclaw_app_t * app,
 #endif
 
 
-smoke3d_options_t*  smoke3d_options_register (fclaw_app_t * app,
+smoke2d_options_t*  smoke2d_options_register (fclaw_app_t * app,
                                               const char *section,
                                               const char *configfile)
 {
     FCLAW_ASSERT (app != NULL);
 
-    smoke3d_options_t *smoke_opt = FCLAW_ALLOC (smoke3d_options_t, 1);
-    fclaw_app_options_register (app, section, configfile, &smoke3d_options_vtable,
+    smoke2d_options_t *smoke_opt = FCLAW_ALLOC (smoke2d_options_t, 1);
+    fclaw_app_options_register (app, section, configfile, &smoke2d_options_vtable,
                                 smoke_opt);
 
     fclaw_app_set_attribute(app,section,smoke_opt);
@@ -184,18 +184,18 @@ smoke3d_options_t*  smoke3d_options_register (fclaw_app_t * app,
 }
 
 
-const smoke3d_options_t* smoke3d_get_options(fclaw_global_t *glob)
+const smoke2d_options_t* smoke2d_get_options(fclaw_global_t *glob)
 {
-    smoke3d_options_t* smoke_opt = (smoke3d_options_t*) 
-    fclaw_pointer_map_get(glob->options, "smoke3d");
+    smoke2d_options_t* smoke_opt = (smoke2d_options_t*) 
+    fclaw_pointer_map_get(glob->options, "smoke2d");
     FCLAW_ASSERT(smoke_opt != NULL);
     return smoke_opt;
 }
 
-void smoke3d_options_store (fclaw_global_t* glob, smoke3d_options_t* smoke_opt)
+void smoke2d_options_store (fclaw_global_t* glob, smoke2d_options_t* smoke_opt)
 {
-    FCLAW_ASSERT(fclaw_pointer_map_get(glob->options,"smoke3d") == NULL);
-    fclaw_pointer_map_insert(glob->options, "smoke3d", smoke_opt, NULL);
+    FCLAW_ASSERT(fclaw_pointer_map_get(glob->options,"smoke2d") == NULL);
+    fclaw_pointer_map_insert(glob->options, "smoke2d", smoke_opt, NULL);
 }
 
 

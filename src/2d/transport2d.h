@@ -1,5 +1,5 @@
  /*
-Copyright (c) 2012-2023 Carsten Burstedde, Donna Calhoun, Patricia Azike, 
+Copyright (c) 2012-2026 Carsten Burstedde, Donna Calhoun, Patricia Azike, 
 Sandra Babyale
 All rights reserved.
 
@@ -46,8 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "transport2d_fort.h"
 
-#include "../smoke3d_options.h"
-#include "../smoke3d_gauges.h"
+#include "../smoke2d_options.h"
+#include "../smoke2d_gauges.h"
 
 #ifdef __cplusplus
 extern "C"
