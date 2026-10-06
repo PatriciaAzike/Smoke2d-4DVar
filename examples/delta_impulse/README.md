@@ -17,9 +17,10 @@ approximately `(1.5, 1.0)`, and maximum approximately
 
 The event time corresponds to reverse time `tau_m = 2.0 - 1.5 = 0.5`, which is
 one of the `nout = 20` output times.  The step therefore lands on the event
-before the frame is written.  This frame represents the post-jump adjoint
-state `alpha(t_m^-)`; it contains the full spatial Gaussian rather than the
-half-integral obtained by sampling a symmetric temporal kernel at its centre.
+before the frame is written.  This frame represents the adjoint state just after the
+jump, `alpha(t_m^-)`, so it contains the full spatial Gaussian. With a temporal Gaussian, 
+a frame at `t_m` would hold only about half of it, since only half the temporal kernel 
+has been added by its centre.
 
 ## Build
 
