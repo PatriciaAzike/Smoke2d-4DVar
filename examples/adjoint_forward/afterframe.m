@@ -9,7 +9,7 @@ pseudo_1d = false;
 pseudo_1d_data = 'Uhat_data.mat';
 plot_soln = false;
 plot_surf = true;
-plot_1d_data = true;
+plot_1d_data = false;
 
 
 fprintf("qmin = %12.4e\n",qmin);
