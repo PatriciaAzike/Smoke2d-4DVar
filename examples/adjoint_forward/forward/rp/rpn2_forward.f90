@@ -48,8 +48,11 @@ subroutine rpn2_forward(ixy,maxm, meqn,mwaves,mbc, &
       g = 1 !! 
 
        
-      urrot = g * auxl(i,1+idir)
-      ulrot = g * auxl(i,1+idir)
+      !! # Cell-centred velocities on either side of face i-1/2:
+      !! #  f-wave: u_i q_i - u_{i-1} q_{i-1},
+      !! # a flux difference, so the update conserves mass.
+      urrot = g * auxl(i,  1+idir)     !! Left edge of right cell
+      ulrot = g * auxr(i-1,1+idir)     !! Right edge of left cell
 
       qrr = ql(i,1)
       qll = qr(i-1,1)
