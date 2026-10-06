@@ -7,7 +7,7 @@ The #84/#85 single-impulse figure: alpha_m advecting backward, r_m built from it
     python3 plot_delta.py --root . --t 0.0 0.2 0.4      # if output is alongside
 
 Panels are 990 x 910 at 300 dpi with style_panel.m's axes and colorbar rectangles,
-matching every other field panel in the paper, with the AMR patch outlines drawn on.
+matching every other field panel in the paper,. The AMR patch outlines are drawn on.
 
 TIME CONVENTION -- this is the thing that is easy to get wrong.
 
@@ -22,10 +22,9 @@ directory separately, and names the output by physical time, so
 
     alpha_t00.70.png   pairs with   rm_t00.70.png
 
-Verified against the existing 3-gauge run: adjoint0 frame 20 (t_run 2.00, physical
-0.00) and forward0 frame 00 (t 0.00) have identical centroids (0.752, 0.807) and
-identical mass 0.9969 -- they are the same field, which is the representer's initial
-condition r_m(.,0) = W_i^{-1} alpha_m(.,0).
+Check: adjoint frame nout (physical t = 0) and forward frame 0 hold the same
+field, the representer's initial condition r_m(.,0) = W_i^{-1} alpha_m(.,0)
+(identical when W_i = 1); their mass and centroid should match.
 
 Colour scale is shared WITHIN each row and separate BETWEEN rows: alpha_m carries the
 impulse amplitude, r_m the accumulated correction, and they differ in magnitude.
