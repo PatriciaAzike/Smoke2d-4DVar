@@ -29,9 +29,12 @@ subroutine rpt2_forward(ixy,maxm,meqn, mwaves,mbc,mx, &
       i1 = i-2+imp    !#  =  i-1 for amdq,  i for apdq
 
       !! # Get an edge value
-      bmasdq(i,1) = min(aux2(i1,idir+1),0.d0)*asdq(i,1)
+      
+      !! # Lower face of cell i1: rows j-1 and j
+      bmasdq(i,1) = min(0.5d0*(aux1(i1,idir+1) + aux2(i1,idir+1)),0.d0)*asdq(i,1)
 
-      bpasdq(i,1) = max(aux3(i1,idir+1),0.d0)*asdq(i,1)
+      !! # Upper face of cell i1: rows j and j+1
+      bpasdq(i,1) = max(0.5d0*(aux2(i1,idir+1) + aux3(i1,idir+1)),0.d0)*asdq(i,1)
   enddo
 
 
