@@ -62,3 +62,7 @@ for i in range(mdata):
 
 
 gaugedata.write(data_source='write_gauges.py')
+
+# The prior (model) run reads its own copy; keep the two identical.
+import os, shutil
+os.makedirs("../model", exist_ok=True); shutil.copyfile("gauges.data", "../model/gauges.data")
