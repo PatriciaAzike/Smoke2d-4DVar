@@ -88,9 +88,24 @@ void forward_link_solvers(fclaw_global_t *glob)
 
 void model_problem_setup(fclaw_global_t *glob)
 {
+    /* Write setprob.data from [model-user] in model_options.ini.
+       Do not copy ../forward/setprob.data: the model run starts
+       before the forward run has written that file. */
+    const model_options_t* user = model_get_options(glob);
+    const fclaw_options_t * fclaw_opt = fclaw_get_options(glob);
+
     if (glob->mpirank == 0)
     {
-        system("cp ../forward/setprob.data ./");
+        FILE *f = fopen("setprob.data","w");
+        fprintf(f,"%-24d   %s",user->example,"\% example\n");
+        fprintf(f,"%-24d   %s",user->initial_condition,"\% initial_condition\n");
+        fprintf(f,"%-24.6f   %s",user->W_f,"\% W_f\n");
+        fprintf(f,"%-24.6f   %s",user->W_i,"\% W_i\n");
+        fprintf(f,"%-24.6f   %s",user->beta,"\% beta\n");
+        fprintf(f,"%-24.6f   %s",user->x0,"\% x0\n");
+        fprintf(f,"%-24.6f   %s",user->y0,"\% y0\n");
+        fprintf(f,"%-24d %s\n",fclaw_opt->moving_gauges,"\% moving_gauges");
+        fclose(f);
     }
     fclaw_domain_barrier(glob->domain);
     FORWARD_SETPROB();
