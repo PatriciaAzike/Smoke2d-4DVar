@@ -53,78 +53,24 @@ where $\mathbf u$ is a steady, velocity $\mathbf{u}(x,y) = (u(x,y),v(x,y))$.
 
 The code illustrates from the paper cited above. 
 
-## 2. How the code implements the method
+## 2. Repository layout
 
-The driver is `examples/adjoint_forward/adjoint_forward.cpp`. It creates one
-ForestClaw "global" (a mesh plus a solver) for the prior, and one
-adjoint and one representer global for each observation, and then runs:
-
-1. **Prior.** Run $q_F$ from $t=0$ to $T$ in `model/`, writing an output
-   frame and a checkpoint (restart file) at each of the `nout + 1` output
-   times.
-2. **For each observation $m$** (`j = m-1` in `run_program`; `m` itself 
-   is the number of observations, `mdata`):
-   1. **Adjoint.** Run $\alpha_m$ once through the whole backward sweep in
-      `adjoint{j}/`, checkpointing at every output time.
-   2. **Representer initial condition.** Interpolate $\alpha_m$ at $t=0$ onto
-      the representer mesh and set $r_m(\cdot,0) = W_i^{-1}\alpha_m(\cdot,0)$.
-   3. **Representer, one step at a time.** The representer needs $\alpha_m$
-      at every one of its own time steps, but $\alpha_m$ was computed
-      backward. After each representer step, the adjoint is restarted from
-      the nearest checkpoint on the far side of the current time, advanced
-      (backward) to the representer's current time, and interpolated onto the
-      representer mesh, where it enters as the source term $W_f^{-1}\alpha_m$. 
-      The representer is checkpointed at every output time in `forward{j}/`.
-3. **Coefficients.** Read $q_F$ and each $r_j$ at the observation points from
-   the ForestClaw gauges, and form the representer matrix $R$. Calculate its asymmetry ($\lVert R - R^T\rVert_F / \lVert R\rVert_F$), symmetrize it, add
-   $W_\varepsilon^{-1}$ to the diagonal and solve for $\beta$ with LAPACK
-   `dgesv`.
-4. **Optimal estimate $\hat{q}$.** For each output time, reload the prior $q_F$ and all representers from their checkpoints, interpolate each $r_m$ onto the
-prior mesh, add $\beta_m r_m$ and write $\hat q$ as an output frame in the 
-example directory.
-
-**Mesh coupling.** The meshes differ in refinement pattern and level, so
-fields are transferred point by point: every cell centre of the receiving
-mesh is a query point, and `fclaw_overlap_exchange` finds the leaf patch of
-the sending mesh that contains it and interpolates there
-(`af_overlap_patch.c`, `af_common_overlap.f90`).
-
-**Discretization.** Every solve uses Clawpack 4.6's second-order wave
-propagation method with the monotonized-centred limiter.
-
-- The adjoint uses a quasilinear (original WPA) Riemann solver, consistent with
-  its advective-form equation.
-- The prior and representers use a flux-form (f-wave) Riemann solver
-  with cell-centred velocities, so they conserve mass: the mass of $q_F$ is
-  constant to round-off throughout a run, on the adaptive mesh as well.
-- Source terms are added by a fractional-step splittling: after each transport 
-  step, a forward -Euler update $q \leftarrow q + \Delta t\, S$.
-
-The forward and adjoint equations are discretized separately (flux form versus advective form, each on its own adaptive mesh, with fields transferred between meshes by interpolation), so the discrete adjoint is not the exact transpose of the discrete forward operator. $R$ is therefore slightly asymmetric; the asymmetry is reported and $R$ is replaced by its symmetric part before solving for $\beta$.
-
-**Adaptivity.** Each mesh refines where its own field varies. A patch is
-refined when the max − min of its field (prior ($q_F$), adjoint ($\alpha_m$) or representer ($r_m$)) exceeds `refine_threshold`, and a family of
-four patches is coarsened when it is below `coarsen_threshold` on all four.
-These tests are the routines in `src/fortran_source/`
-(`clawpatch46_fort_tag4refinement`, `clawpatch46_fort_tag4coarsening`),
-which every solver installs. The mesh is regridded after every time step.
-
-## 4. Repository layout
+The files in this repository are laid out as follows. 
 
 ```
 Smoke2d-4DVar/
 ├── CMakeLists.txt              top level; finds ForestClaw
 ├── src/                        library smoke2d-4DVar
 │   ├── smoke2d_*.{c,h,f90}     options, gauge helpers, Fortran module
-│   ├── 2d/                     2D transport: velocity from stream function, setaux, Riemann solvers
-│   └── fortran_source/         clawpatch46_* tagging/interpolation routines used by the solvers
+│   ├── 2d/                     2D transport: prescribe velocity field and store in auxiliary arrays
+│   └── fortran_source/         clawpatch46_* tagging/interpolation routines used by the AMR routines
 └── examples/
     ├── adjoint_forward/        the assimilation (Sections 3 and 8)
     │   ├── adjoint_forward.cpp     driver: prior, adjoints, representers, β, optimal estimate
     │   ├── user_run.c              one-step time stepper so fields can be exchanged between steps
     │   ├── af_overlap_patch.c      mesh-to-mesh interpolation callbacks
     │   ├── af_common_*.f90         shared initial condition, aux (velocity) and overlap routines
-    │   ├── adjoint/                adjoint solver: options, source (heat kernels), stream function −ψ
+    │   ├── adjoint/                adjoint solver: options, source (heat kernels)
     │   ├── forward/                prior ("model") and representer solvers, options, sources;
     │   │                           write_gauges.py sets the observations (Section 8)
     │   ├── *_options.ini           run configuration (Section 9)
