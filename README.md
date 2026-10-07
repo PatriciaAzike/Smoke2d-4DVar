@@ -2,18 +2,16 @@
 
 Representer-Based Data Assimilation on Adaptively Refined Meshes for Idealized Smoke Transport
 
-Smoke2d-4DVar is built on [ForestClaw](https://github.com/ForestClaw/forestclaw),
+Smoke2d_4DVar is a computational model for 2d idealized wildfire smoke transport.  A key feature of the model is that it incorporates 4DVar data assimilation using data using the representer method (Bennett, 2005).   Smoke2d-4DVar is built on [ForestClaw](https://github.com/ForestClaw/forestclaw),
 a parallel, patch-based adaptive mesh refinement (AMR) framework that uses
-[p4est](https://www.p4est.org) for the mesh and Clawpack 4.6 finite-volume solvers 
-on each patch. A smoke concentration is advected by a prescribed, velocity field, 
-which is derived from a stream function (and so is divergence-free). A small number 
+[p4est](https://www.p4est.org) for the mesh and the wave propagation algorithm finite-volume solvers (Leveque, 2002) . A smoke concentration is advected by a prescribed, velocity field,  A small number 
 of point observations of the concentration are assimilated by the representer method
-(Bennet, 2005), which gives the minimizer (optimal estimate) of the weak-constraint 
+(Bennett, 2005), which gives the minimizer (optimal estimate) of the weak-constraint 
 cost functional by combining one prior trajectory run with one adjoint and one 
 representer run per observation.
 
 Every run in the method (the prior, each adjoint, each representer) has its own 
-adaptive mesh. The meshes are coupled through ForestClaw's overlap exchange, 
+adaptive mesh. The meshes are coupled through ForestClaw's overlap exchange mechanism, 
 which interpolates a field from one mesh onto the cell centres of another.
 
 ---
