@@ -14,6 +14,8 @@ Every run in the method (the prior, each adjoint, each representer) has its own
 adaptive mesh. The meshes are coupled through ForestClaw's overlap exchange mechanism, 
 which interpolates a field from one mesh onto the cell centres of another.
 
+Smoke2d_4DVar is the 2d version of a larger 3d code and is described in the paper <fill in paper name here>
+
 ---
 
 ## Contents
@@ -38,26 +40,32 @@ which interpolates a field from one mesh onto the cell centres of another.
 
 ---
 
-## 1. The problem
+## 1. An idealized smoke transport model
 
-The smoke concentration $q(\mathbf{x},t)$ on the periodic square
-$\Omega = [0,2]^2$, $0 \le t \le T$ ($T = 2$) satisfies the conservative transport equation
 
+The evolution of smoke concentration $q(x,y,t)$ in an idealized setting can be described by the transport model
 $$
 \frac{\partial q}{\partial t} + \nabla\cdot(\mathbf{u} q) = 0,
 \qquad q(\mathbf{x},0) = q_0(\mathbf{x}),
 $$
 
-with a steady, velocity $\mathbf{u} = (\partial_y\psi,\, -\partial_x\psi)$. 
+where $\mathbf u$ is a steady, velocity $\mathbf{u}(x,y) = (u(x,y),v(x,y))$. 
 
-Two experiments are built in selected by `pseudo-1d` in `adjoint_options.ini`:
+The code illustrates from the paper cited above. 
 
-| `pseudo-1d` | Stream function $\psi$ | Flow | Prior model initial condition $q_0$ |
-|---|---|---|---|
-| `1` (pseudo-1D) | $\psi = y$ | constant unit velocity in $x$ | strip, $q_0 = 1$ for $\lvert x-0.5\rvert < 0.25$, else 0 |
-| `2` (full 2D) | $\psi = \tfrac{4}{3}r^3$, <br> $r = \sqrt{(x-1)^2 + (y-1)^2}$ | differential rotation about $(1,1)$, angular speed $4r$ | disk of radius 0.25 centred at (0.5, 1) (`x0`, `y0` in `adjoint_options.ini`) |
+All examples are run using input from configuration files 
 
-Observations $d_m$ of $q$ are given at points $(\mathbf{x}_m, t_m)$, $m = 1,\dots,M$.
+Examples can be run using the command
+
+```
+$ adjoint_forward
+```
+
+
+## Pseudo-1d examples (Section 5.1)
+
+Two pseudo-1d experiments are run by setting `pseudo-1d=T` in `adjoint_options.ini`:
+
 
 ## 2. The method
 
