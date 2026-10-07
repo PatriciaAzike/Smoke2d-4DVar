@@ -85,113 +85,26 @@ An executable for each example (adjoint_forward and delta_impulse) is built.
 | C, C++17 and Fortran compilers | The same compilers used to build ForestClaw (e.g. GCC/gfortran). |
 | CMake ≥ 3.19 | ForestClaw's minimum. |
 | MPI | ForestClaw is built with MPI. The runs reported here used one MPI rank. |
-| ForestClaw (`develop` branch) with Clawpack 4.6 | Section 6. Provides p4est and libsc. |
-| LAPACK | For `dgesv` in the coefficient solve (Section 14 if it doesn't link). |
 | Python 3 with NumPy and Matplotlib | `forward/write_gauges.py` and the `delta_impulse` scripts. `write_gauges.py` also needs `fclaw_analysis.py` from ForestClaw's `python/` directory. |
 | MATLAB | Plotting with the Clawpack/ForestClaw MATLAB graphics routines. |
 
-## 6. Building ForestClaw
+In what follows, we describe the process that automatically downloads and builds needed libraries, including ForestClaw and p4est.  A more advanced user may wish to build these libraries separately.  
 
-Smoke2d-4DVar needs ForestClaw's `develop` branch, built with CMake and the
-Clawpack solvers enabled. ForestClaw's own instructions are in its
-[wiki](https://github.com/ForestClaw/forestclaw/wiki).
-
-ForestClaw needs p4est and libsc. Either build and install p4est first and
-point ForestClaw at it (below), or omit `-Dsubmodules=off`, `-DP4EST_ROOT` and
-`-DSC_ROOT` and let ForestClaw check out and build the bundled copies as part 
-of its own build. 
-
-Here p4est (with libsc) is built and installed first, and ForestClaw is then  
-built against it. Each is configured from its own build directory next to the  
-source:
-
-```
-ForestClaw/
-├── p4est/              p4est-build/       (install: p4est-build/local)
-└── forestclaw/         forestclaw-build/  (install: forestclaw-build/local)
-```
-
-**p4est** (libsc is checked out and installed with it):
-
-```sh
-mkdir -p $HOME/ForestClaw && cd $HOME/ForestClaw
-git clone https://github.com/cburstedde/p4est.git
-mkdir p4est-build
-```
-
-To configure the code, add these commands to an executable script (e.g. config-p4est.sh) : 
-
-```sh
-# File : config-p4est.sh
-P4EST=$HOME/ForestClaw/p4est-build/local
-cmake \
-    -DCMAKE_INSTALL_PREFIX=${P4EST} \
-    -DCMAKE_C_COMPILER=mpicc \
-    -DCMAKE_C_FLAGS="-O2 -g -Wall" \
-    -Dmpi=on \
-    ../p4est
-```
-
-Then, to configure p4est : 
-
-```sh
-cd p4est-build
-../config-p4est.sh
-```
-
-and build : 
-
-```sh
-make install 
-```
-
-**ForestClaw**:
-
-To build ForestClaw, use the same steps as above, and the following configuration script : 
-
-```sh
-cd $HOME/ForestClaw
-git clone -b develop https://github.com/ForestClaw/forestclaw.git
-mkdir forestclaw-build && cd forestclaw-build
-```
-
-```sh
-# FILE : config_forestclaw.sh
-P4EST=$HOME/ForestClaw/p4est-build/local
-FCLAW=$HOME/ForestClaw/forestclaw-build
-cmake \
-    -DCMAKE_INSTALL_PREFIX=${FCLAW}/local \
-    -DCMAKE_C_COMPILER=gcc \
-    -DCMAKE_CXX_COMPILER=g++ \
-    -DCMAKE_Fortran_COMPILER=gfortran \
-    -DCMAKE_C_FLAGS="-O2 -g -Wall" \
-    -DCMAKE_CXX_FLAGS="-O2 -g -Wall" \
-    -DCMAKE_Fortran_FLAGS="-O2 -g -Wall -Wno-unused-dummy-argument" \
-    -DP4EST_ROOT=${P4EST} \
-    -DSC_ROOT=${P4EST} \
-    -Dclawpack=on \
-    -Dmpi=on \
-    -Dsubmodules=off \
-    ../forestclaw
-```
-
-## 7. Building Smoke2d-4DVar
+## 6. Building Smoke2d-4DVar
 
 We recommend building Smoke2d_4DVar out of source, in a directory parallel to the repository. 
 
-The
-`delta_impulse` run script expects the build directory to be called
-`smoke2d-4DVar-build` and to sit next to `Smoke2d-4DVar/` (Section 11).
-
 ```sh
 git clone https://github.com/PatriciaAzike/Smoke2d-4DVar.git
-mkdir smoke2d-4DVar-build && cd smoke2d-4DVar-build
-P4EST=$HOME/ForestClaw/p4est-build/local
-FCLAW=$HOME/ForestClaw/forestclaw-build/local
+mkdir smoke2d-4DVar-build
+```
+
+Create an executable configuration file with the following commands. 
+
+```sh
+# File : config-smoke2d_4DVar.sh
+
 cmake \
-    -DFORESTCLAW_ROOT=${FCLAW} \
-    -DP4EST_ROOT=${P4EST} \
-    -DSC_ROOT=${P4EST} \
     -DCMAKE_C_COMPILER=gcc \
     -DCMAKE_CXX_COMPILER=g++ \
     -DCMAKE_Fortran_COMPILER=gfortran \
@@ -199,30 +112,20 @@ cmake \
     -DCMAKE_CXX_FLAGS="-O2 -g -Wall" \
     -DCMAKE_Fortran_FLAGS="-O2 -g -Wall -cpp -Wno-unused-dummy-argument" \
     -DCMAKE_EXE_LINKER_FLAGS="-llapack" \
+    -DCMake_External_build=True \
     ../Smoke2d-4DVar
-make -j4
 ```
+Then, configure, build and install the executables `adjoint_forward` and `delta_impulse`. 
 
-- `-cpp` is required: some Fortran sources use `#if` blocks.
-- LAPACK is required (the coefficients β are solved with `dgesv`). If it is
-  not on the default library path, add `-L/path/to/lib`, e.g.
-  `-L/opt/local/lib -llapack` with MacPorts. 
-- `P4EST_ROOT`/`SC_ROOT` are needed when p4est was installed separately
-  (Section 6).
-- On macOS, add `-Wl,-no_compact_unwind` to the linker flags if the link
-  warns about compact unwind.
-- For a debug build, use `-O0` and add `-DFCLAW_ENABLE_DEBUG=1` to the C/C++
-  flags.
-
+```sh
+cd smoke2d-4DVar-build
+../config-smoke2d_4DVar
+make -j4 install
+```
 This builds:
 
-- `smoke2d-4DVar-build/examples/adjoint_forward/adjoint_forward`
-- `smoke2d-4DVar-build/examples/delta_impulse/delta_impulse`
-
-**Alternative (no separate ForestClaw install).** Configuring with
-`-Dexternal_build=ON` instead of `-DFORESTCLAW_ROOT=...` makes CMake clone
-ForestClaw's `develop` branch into the build directory and build it with MPI
-as part of Smoke2d-4DVar. This needs internet access to GitHub.
+- `<build-directory>/examples/adjoint_forward/adjoint_forward`
+- `<build-directory>/examples/delta_impulse/delta_impulse`
 
 ## 8. Running the assimilation (`adjoint_forward`)
 
@@ -233,7 +136,7 @@ All inputs are read from, and all outputs written below,
 cd Smoke2d-4DVar/examples/adjoint_forward
 
 # 1. Link the executable here.
-ln -sf ../../../smoke2d-4DVar-build/examples/adjoint_forward/adjoint_forward .
+ln -sf ../../../<build-directory>/examples/adjoint_forward/adjoint_forward
 
 # 2. Set the observations. The list at the top of forward/write_gauges.py
 #    (xm, ym, tm, dm) is the single source: the script writes them into
@@ -243,8 +146,8 @@ cd forward
 PYTHONPATH=/path/to/forestclaw/python python3 write_gauges.py
 cd ..
 
-# 3. Run (one MPI rank).
-./adjoint_forward          # or: mpirun -n 1 ./adjoint_forward
+# 3. Run 
+./adjoint_forward
 ```
 
 Re-run step 2 whenever the observations change; the driver stops with a
@@ -270,15 +173,10 @@ beta[0] = ...                        the coefficients β
 ...
 ```
 
-The relative asymmetry of $R$ is about 1% in the full-2D configuration
-and about 7% in the pseudo-1D one; symmetrizing $R$ changes $\beta$ by at
-most 1.6% (Euclidean norm). After the coefficients, the program writes the 
-optimal estimate frames and prints ForestClaw's timing summary for each run.
-
 ## 9. Configuration reference
 
-The driver reads three option files, one per kind of run. Each has a
-problem section (`[*-user]`), a mesh section (`[*-clawpatch]`), a run section
+The driver reads three option files, one per kind of run. Each configuration file has a
+sections : (`[*-user]`), a mesh section (`[*-clawpatch]`), a run section
 (`[adjoint]`, `[forward]`, `[model]`) and a solver section (`[*-clawpack46]`).
 The run and solver sections take the standard ForestClaw and Clawpack 4.6
 options; the table lists the ones that matter here.
@@ -297,7 +195,7 @@ the options will disagree. The script rewrites the whole file with Python's
 
 | Option | Meaning |
 |---|---|
-| `pseudo-1d` | `1` = pseudo-1D experiment, `2` = full 2D (Section 1). Also selects the velocity field for all runs. |
+| `pseudo-1d` | `T` = pseudo-1D experiment, `F` = full 2D (Section 1). Also selects the velocity field for all runs. |
 | `mdata` | number of observations $M$ |
 | `xm`, `ym`, `tm` | observation positions and times (`mdata` values each) |
 | `dm` | observed values $d_m$ |
