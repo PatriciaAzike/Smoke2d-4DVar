@@ -44,12 +44,13 @@ The smoke concentration $q(\mathbf{x},t)$ on the periodic square
 $\Omega = [0,2]^2$, $0 \le t \le T$ ($T = 2$) satisfies the conservative transport equation
 
 $$
-\frac{\partial q}{\partial t} + \nabla\cdot(\mathbf{u}\,q) = 0,
+\frac{\partial q}{\partial t} + \nabla\cdot(\mathbf{u} q) = 0,
 \qquad q(\mathbf{x},0) = q_0(\mathbf{x}),
 $$
 
-with a steady, divergence-free velocity $\mathbf{u} = (\partial_y\psi,\, -\partial_x\psi)$ given 
-by a stream function. Two experiments are built in selected by `pseudo-1d` in `adjoint_options.ini`:
+with a steady, velocity $\mathbf{u} = (\partial_y\psi,\, -\partial_x\psi)$. 
+
+Two experiments are built in selected by `pseudo-1d` in `adjoint_options.ini`:
 
 | `pseudo-1d` | Stream function $\psi$ | Flow | Prior model initial condition $q_0$ |
 |---|---|---|---|
