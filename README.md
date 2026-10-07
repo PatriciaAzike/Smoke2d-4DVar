@@ -21,22 +21,20 @@ Smoke2d_4DVar is the 2d version of a larger 3d code and is described in the pape
 ## Contents
 
 1. [The smoke transport problem](#1-the-smoke-transport-problem)
-2. [Weak-constraint 4D-Var and the representer method](#2-Weak-constraint-4D-Var-and-the-representer-method)
-3. [How the code implements the method](#3-how-the-code-implements-the-method)
-4. [Repository layout](#4-repository-layout)
-5. [Requirements](#5-requirements)
-6. [Building ForestClaw](#6-building-forestclaw)
-7. [Building Smoke2d-4DVar](#7-building-smoke2d-4dvar)
-8. [Running the assimilation (`adjoint_forward`)](#8-running-the-assimilation-adjoint_forward)
-9. [Configuration reference](#9-configuration-reference)
-10. [Output](#10-output)
-11. [Verification: the delta-impulse test (`delta_impulse`)](#11-verification-the-delta-impulse-test-delta_impulse)
-12. [Plotting](#12-plotting)
-13. [Uniform-mesh reference runs](#13-uniform-mesh-reference-runs)
-14. [Troubleshooting](#14-troubleshooting)
-15. [Known limitations](#15-known-limitations)
-16. [References](#16-references)
-17. [License](#17-license)
+2. [Repository layout](#4-repository-layout)
+3. [Requirements](#5-requirements)
+4. [Building ForestClaw](#6-building-forestclaw)
+5. [Building Smoke2d-4DVar](#7-building-smoke2d-4dvar)
+6. [Running the assimilation (`adjoint_forward`)](#8-running-the-assimilation-adjoint_forward)
+7. [Configuration reference](#9-configuration-reference)
+8. [Output](#10-output)
+9. [Verification: the delta-impulse test (`delta_impulse`)](#11-verification-the-delta-impulse-test-delta_impulse)
+10. [Plotting](#12-plotting)
+11. [Uniform-mesh reference runs](#13-uniform-mesh-reference-runs)
+12. [Troubleshooting](#14-troubleshooting)
+13. [Known limitations](#15-known-limitations)
+14. [References](#16-references)
+15. [License](#17-license)
 
 ---
 
@@ -78,9 +76,7 @@ Smoke2d-4DVar/
     └── delta_impulse/          verification with an instantaneous impulse (Section 11)
 ```
 
-Two executables are built: `adjoint_forward` and `delta_impulse`. The
-second compiles the same sources with a different adjoint source routine
-and stops after the representer (Section 11).
+An executable for each example (adjoint_forward and delta_impulse) is built. 
 
 ## 5. Requirements
 
@@ -120,24 +116,47 @@ ForestClaw/
 ```sh
 mkdir -p $HOME/ForestClaw && cd $HOME/ForestClaw
 git clone https://github.com/cburstedde/p4est.git
-mkdir p4est-build && cd p4est-build
+mkdir p4est-build
+```
+
+To configure the code, add these commands to an executable script (e.g. config-p4est.sh) : 
+
+```sh
+# File : config-p4est.sh
 P4EST=$HOME/ForestClaw/p4est-build/local
 cmake \
     -DCMAKE_INSTALL_PREFIX=${P4EST} \
     -DCMAKE_C_COMPILER=mpicc \
     -DCMAKE_C_FLAGS="-O2 -g -Wall" \
     -Dmpi=on \
-    -GNinja \
     ../p4est
-ninja && ninja install
+```
+
+Then, to configure p4est : 
+
+```sh
+cd p4est-build
+../config-p4est.sh
+```
+
+and build : 
+
+```sh
+make install 
 ```
 
 **ForestClaw**:
+
+To build ForestClaw, use the same steps as above, and the following configuration script : 
 
 ```sh
 cd $HOME/ForestClaw
 git clone -b develop https://github.com/ForestClaw/forestclaw.git
 mkdir forestclaw-build && cd forestclaw-build
+```
+
+```sh
+# FILE : config_forestclaw.sh
 P4EST=$HOME/ForestClaw/p4est-build/local
 FCLAW=$HOME/ForestClaw/forestclaw-build
 cmake \
@@ -153,31 +172,14 @@ cmake \
     -Dclawpack=on \
     -Dmpi=on \
     -Dsubmodules=off \
-    -GNinja \
     ../forestclaw
-ninja && ninja install
 ```
-
-- `-Dclawpack=ON` is required (Smoke2d links `FORESTCLAW::CLAWPACK4.6`).
-- `-Dmpi=ON` builds with MPI; p4est must be built with MPI as well.
-- `-Dsubmodules=off` tells ForestClaw not to build its bundled copies of
-  p4est and libsc, and to use the installed ones instead; `P4EST_ROOT` and
-  `SC_ROOT` say where they are.
-- Optionally, `-Dapplications=OFF` skips ForestClaw's own examples, which are
-  not needed here.
-- On macOS, use GCC (e.g. Homebrew `gcc-14`, `g++-14`, `gfortran-14`). If the
-  link step warns about compact unwind, add
-  `-DCMAKE_EXE_LINKER_FLAGS="-Wl,-no_compact_unwind"` (macOS only; this flag
-  breaks the link on Linux).
-- For a debug build, add `-DP4EST_ENABLE_DEBUG=1 -DSC_ENABLE_DEBUG=1` to the
-  p4est C flags and `-DFCLAW_ENABLE_DEBUG=1` to the ForestClaw C/C++ flags.
-
-The ForestClaw install prefix (here `$HOME/ForestClaw/forestclaw-build/local`) is
-what Smoke2d-4DVar needs as `FORESTCLAW_ROOT`.
 
 ## 7. Building Smoke2d-4DVar
 
-Build out of source, in a directory next to the repository. The
+We recommend building Smoke2d_4DVar out of source, in a directory parallel to the repository. 
+
+The
 `delta_impulse` run script expects the build directory to be called
 `smoke2d-4DVar-build` and to sit next to `Smoke2d-4DVar/` (Section 11).
 
