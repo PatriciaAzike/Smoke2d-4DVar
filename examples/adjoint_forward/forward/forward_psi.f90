@@ -1,5 +1,5 @@
 double precision function forward_psi(x,y,z)
-    use adjoint_module, only : pseudo_1d
+    use adjoint_module, only : pseudo_1d_experiment
     implicit none
 
     double precision x,y,z,r
@@ -10,9 +10,9 @@ double precision function forward_psi(x,y,z)
     r = sqrt((x-1.d0)**2 + (y-1.d0)**2)
 
     !! # Rigid body rotation
-    if (pseudo_1d .eq. 1) then
+    if (pseudo_1d_experiment) then
         forward_psi = y                !! pseudo-1d example
-    elseif (pseudo_1d .eq. 2) then
+    else
         forward_psi = (4.d0/3.d0)*r**3 !! full 2D example
     endif
 

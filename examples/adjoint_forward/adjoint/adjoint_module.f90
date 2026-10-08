@@ -6,7 +6,7 @@ module adjoint_module
     integer :: mdata !!number of data points
     integer :: obs_index = 1 !! current observation used to build representer
 
-    integer :: pseudo_1d !!dimension of code/experiment
+    logical :: pseudo_1d_experiment !! .true.: pseudo-1D experiment; .false.: full-2D
 
     double precision :: eps_1d !! width of the heat kernel for pseudo-1D experiment
     double precision :: eps_2d !! width of the heat kernel for full-2D experiment
@@ -23,17 +23,17 @@ end module adjoint_module
 
 
 double precision function dirac_delta(r)
-    use adjoint_module, only : eps_1d, eps_2d, pseudo_1d
+    use adjoint_module, only : eps_1d, eps_2d, pseudo_1d_experiment
     implicit none
 
     double precision r, pi
 
     pi = 4.d0*atan(1.d0)
 
-    if (pseudo_1d .eq. 1) then 
+    if (pseudo_1d_experiment) then
         dirac_delta = exp(-r**2/(4*eps_1d))/sqrt(4*pi*eps_1d) ! 1D delta function approx. using heat kernel
 
-    elseif (pseudo_1d .eq. 2) then
+    else
         dirac_delta = exp(-r**2/(4*eps_2d))/(4*pi*eps_2d) ! 2D delta function approx. using heat kernel
     
     endif
@@ -46,14 +46,14 @@ double precision function dirac_delta_time(s)
     !! normalization 1/sqrt(4*pi*eps) is always used (the 2D prefactor
     !! 1/(4*pi*eps) would inject a total impulse of 1/sqrt(4*pi*eps)
     !! instead of unity when integrated over time).
-    use adjoint_module, only : eps_1d, eps_2d, pseudo_1d
+    use adjoint_module, only : eps_1d, eps_2d, pseudo_1d_experiment
     implicit none
 
     double precision s, pi, eps
 
     pi = 4.d0*atan(1.d0)
 
-    if (pseudo_1d .eq. 1) then
+    if (pseudo_1d_experiment) then
         eps = eps_1d
     else
         eps = eps_2d

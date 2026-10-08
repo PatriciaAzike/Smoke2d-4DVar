@@ -73,8 +73,9 @@ adjoint_register (adjoint_options_t *user, sc_options_t * opt)
                                    NULL, &user->W_eps, user->mdata,
                                    "[user] weight assoc. with error at m data.");
 
-    sc_options_add_int (opt, 0, "pseudo-1d", &user->pseudo_1d, 1,
-                        "dimension of code: 1 = psuedo-1d; 2 = full-2d; [1]");
+    sc_options_add_bool (opt, 0, "pseudo-1d-experiment",
+                         &user->pseudo_1d_experiment, 0,
+                         "T = pseudo-1D experiment; F = full-2D experiment [F]");
 
 
     user->is_registered = 1;

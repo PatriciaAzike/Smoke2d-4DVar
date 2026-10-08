@@ -1,5 +1,5 @@
 double precision function  adjoint_source(mq,xc,yc,t)
-    use adjoint_module, only : xm, ym, tm, mdata,tfinal,pseudo_1d, obs_index
+    use adjoint_module, only : xm, ym, tm, mdata,tfinal,pseudo_1d_experiment, obs_index
     implicit none
 
     integer mq
@@ -25,9 +25,9 @@ double precision function  adjoint_source(mq,xc,yc,t)
         stop
     endif
 
-    if (pseudo_1d .eq. 1) then
+    if (pseudo_1d_experiment) then
         r = abs(xc - xm(obs_index))                      !! Euclidean distance for pseudo-1d experiment
-    elseif (pseudo_1d .eq. 2) then
+    else
         r = sqrt((xc-xm(obs_index))**2 + (yc-ym(obs_index))**2) !! Euclidean distance for full 2D experiment
     endif
     !write(6,*) 'obs_index = ', obs_index, ' xm = ', xm(obs_index), ' ym = ', ym(obs_index)

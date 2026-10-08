@@ -1,6 +1,6 @@
 subroutine adjoint_setprob
     use adjoint_module, only : beta, x0, y0, initial_condition, mdata, &
-                               pseudo_1d,eps_1d,eps_2d,xm,ym,tm,dm, &
+                               pseudo_1d_experiment,eps_1d,eps_2d,xm,ym,tm,dm, &
                                W_eps,tfinal,obs_index
     implicit none
 
@@ -36,7 +36,7 @@ subroutine adjoint_setprob
         read(10,*) W_eps(i)
     end do
 
-    read(10,*) pseudo_1d
+    read(10,*) pseudo_1d_experiment
 
     obs_index = 1
 

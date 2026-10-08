@@ -1,7 +1,7 @@
 subroutine af_common_qinit(maxmx,maxmy,meqn,mbc, & 
    mx,my,xlower,ylower,dx,dy,q,maux,aux, & 
    initial_condition,q0_initial)
-    use adjoint_module, only : pseudo_1d
+    use adjoint_module, only : pseudo_1d_experiment
     implicit none
 
     external q0_initial
@@ -27,13 +27,13 @@ subroutine af_common_qinit(maxmx,maxmy,meqn,mbc, &
                 ylow = ylower + (j-1)*dy
 
                 if (initial_condition .eq. 2) then
-                    if (pseudo_1d .eq. 1) then
+                    if (pseudo_1d_experiment) then
                         if (abs(xc - 0.5d0) .lt. 0.25d0) then 
                             w = 1
                         else 
                             w = 0
                         endif
-                    elseif (pseudo_1d .eq. 2) then
+                    else
                         call cellave2(blockno,xlow,ylow,dx,dy,w)
                     endif
 

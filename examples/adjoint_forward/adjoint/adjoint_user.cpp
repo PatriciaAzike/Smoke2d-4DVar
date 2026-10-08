@@ -56,7 +56,8 @@ void adjoint_problem_setup(fclaw_global_t *glob)
             fprintf(f,  "%-24.6f   %s",user->W_eps[i],"\% W_eps\n");
         }
 
-        fprintf(f,  "%-24d   %s",user->pseudo_1d,"\% pseudo-1d\n");
+        fprintf(f,  "%-24s   %s",user->pseudo_1d_experiment ? "T" : "F",
+                "\% pseudo-1d-experiment\n");
         fclose(f);
     }
     fclaw_domain_barrier (glob->domain);

@@ -44,7 +44,7 @@ extern "C"
 typedef struct adjoint_options
 {
     int example;
-    int pseudo_1d;
+    int pseudo_1d_experiment;  /* T: pseudo-1D experiment, F: full-2D */
     int mdata;
     int initial_condition;
     double eps_1d;
