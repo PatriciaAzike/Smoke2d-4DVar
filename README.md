@@ -20,7 +20,7 @@ Smoke2d-4DVar is the 2d version of a larger 3d code and is described in the pape
 
 ## Contents
 
-1. [The smoke transport problem](#1-the-smoke-transport-problem)
+1. [An idealized smoke transport model](#1-an-idealized-smoke-transport-model)
 2. [Repository layout](#2-repository-layout)
 3. [Requirements](#3-requirements)
 4. [Building Smoke2d-4DVar](#4-building-smoke2d-4dvar)
@@ -62,17 +62,17 @@ Smoke2d-4DVar/
 │   ├── 2d/                     2D transport: prescribe velocity field and store in auxiliary arrays
 │   └── fortran_source/         clawpatch46_* tagging/interpolation routines used by the AMR routines
 └── examples/
-    ├── adjoint_forward/        the assimilation (Sections 3 and 8)
+    ├── adjoint_forward/        the assimilation (Section 5)
     │   ├── adjoint_forward.cpp     driver: prior, adjoints, representers, β, optimal estimate
     │   ├── user_run.c              one-step time stepper so fields can be exchanged between steps
     │   ├── af_overlap_patch.c      mesh-to-mesh interpolation callbacks
     │   ├── af_common_*.f90         shared initial condition, aux (velocity) and overlap routines
     │   ├── adjoint/                adjoint solver: options, source (heat kernels)
     │   ├── forward/                prior ("model") and representer solvers, options, sources;
-    │   │                           write_gauges.py sets the observations (Section 8)
-    │   ├── *_options.ini           run configuration (Section 9)
-    │   └── *.m                     MATLAB plotting (Section 12)
-    └── delta_impulse/          verification with an instantaneous impulse (Section 11)
+    │   │                           write_gauges.py sets the observations (Section 5)
+    │   ├── *_options.ini           run configuration (Section 6)
+    │   └── *.m                     MATLAB plotting (Section 9)
+    └── delta_impulse/          verification with an instantaneous impulse (Section 8)
 ```
 
 An executable for each example (adjoint_forward and delta_impulse) is built. 
@@ -194,7 +194,7 @@ the options will disagree. The script rewrites the whole file with Python's
 
 | Option | Meaning |
 |---|---|
-| `pseudo-1d` | `T` = pseudo-1D experiment, `F` = full 2D (Section 1). Also selects the velocity field for all runs. |
+| `pseudo-1d-experiment` | `T` = pseudo-1D experiment, `F` = full 2D; default `F`. Also selects the velocity field for all runs. |
 | `mdata` | number of observations $M$ |
 | `xm`, `ym`, `tm` | observation positions and times (`mdata` values each) |
 | `dm` | observed values $d_m$ |
@@ -210,7 +210,7 @@ values for both.
 
 **prior initial condition** (`initial-condition` in `[model-user]`):
 `0` zero, `1` Gaussian $e^{-\beta\lvert\mathbf{x}-\mathbf{x}_0\rvert^2}$
-(`beta`, `x0`, `y0`), `2` strip (pseudo-1D) or disk (2D) as in Section 1.
+(`beta`, `x0`, `y0`), `2` strip (pseudo-1D) or disk (2D).
 
 **Mesh and time** (run and clawpatch sections of each file):
 
@@ -218,7 +218,7 @@ values for both.
 |---|---|---|
 | `mx`, `my` | 32 | cells per patch in each direction |
 | `minlevel`, `maxlevel` | 2–4 (prior, representers), 2–5 (adjoints) | coarsest and finest refinement level; level $\ell$ has $2^\ell \times 32$ cells across the domain |
-| `refine_threshold`, `coarsen_threshold` | 0.125, 0.06 | max − min of the field above which a patch is refined / below which it is coarsened (Section 3) |
+| `refine_threshold`, `coarsen_threshold` | 0.125, 0.06 | max − min of the field above which a patch is refined / below which it is coarsened |
 | `tfinal`, `nout` | 2.0, 20 | final time and number of output intervals (output every 0.1) |
 | `ax`, `bx`, `ay`, `by` | 0, 2, 0, 2 | domain |
 | `periodic_x`, `periodic_y` | True | periodic boundaries |
@@ -289,6 +289,13 @@ details.
 draws the patch borders and, for the 2D case, the exact filament of the
 prior disk (`filament_soln.m`).
 
+**Python** (`examples/adjoint_forward/paper_figs/regen.py`). Regenerates 
+the paper's field panels (pseudo-1D and full 2D, $W_{\epsilon_m} = 0.01$ 
+and $100$) into `paper_figs/out/`. It reads `fort.q` frames copied into 
+`paper_figs/` under the names listed in the script (e.g. `fort.q0004_amr_1d_hw`); 
+these are not in the repository, so run the corresponding experiments first 
+and copy the frames in.
+
 **Python** (`examples/delta_impulse/`). `plot_delta_impulse.py` draws the
 adjoint and representer at chosen physical times with one shared colour
 scale; `plot_delta.py` holds the reading and panel routines it uses.
@@ -297,11 +304,7 @@ scale; `plot_delta.py` holds the reading and panel routines it uses.
 
 A uniformly refined reference is obtained by setting `minlevel = maxlevel`
 in each option file (level 4 for the prior and representers, level 5
-for the adjoints, i.e. $512^2$ and $1024^2$ cells). For the configuration in
-this repository (full 2D, three observations, one MPI rank), the adaptive
-run took $1293 \pm 15$ s and the uniform reference $23{,}667 \pm 619$ s
-(mean ± sample standard deviation of three runs each), a speedup of about
-18.3. Almost all of the saving is in the adjoint solves.
+for the adjoints, i.e. $512^2$ and $1024^2$ cells). 
 
 ## 11. Troubleshooting
 
@@ -310,7 +313,7 @@ run took $1293 \pm 15$ s and the uniform reference $23{,}667 \pm 619$ s
 | `find_package(FORESTCLAW)` fails | Pass `-DFORESTCLAW_ROOT=<install prefix>`, and make sure ForestClaw was built with `-Dclawpack=ON`. |
 | Undefined `dgesv_` at link time | No LAPACK was linked through ForestClaw's dependencies. Add `find_package(LAPACK REQUIRED)` and link `LAPACK::LAPACK` to `adjoint_forward` and `delta_impulse`. |
 | `get_gauges: FATAL -- accumulator has N gauges but mdata = M` | `gauges.data` is out of date. Re-run `forward/write_gauges.py` (from inside `forward/`); it rewrites both `forward/gauges.data` and `model/gauges.data`. |
-| The prior (`model/`) is zero everywhere and never refines | The initial condition is wrong or missing, e.g. `adjoint/adjoint_fdisc.f90` (the disk for `pseudo-1d = 2`) not compiled in. |
+| The prior (`model/`) is zero everywhere and never refines | The initial condition is wrong or missing, e.g. `adjoint/adjoint_fdisc.f90` (the disk for `pseudo-1d-experiment = F`) not compiled in. |
 | `File does not exist` when "Restarting model from checkpoint file" | A checkpoint in `model/` (or `adjoint{j}/`, `forward{j}/`) was deleted or moved during the run. Re-run without touching those directories. |
 | Stale results after changing options | Output directories are overwritten, not cleared; delete old `fort.*` files before a run if frame counts change. |
 
@@ -319,7 +322,7 @@ run took $1293 \pm 15$ s and the uniform reference $23{,}667 \pm 619$ s
 - Tested on one MPI rank. The overlap exchange is written for distributed
   meshes, but multi-rank runs have not been validated.
 - The forward and adjoint discretizations are not exact discrete adjoints,
-  so $R$ is symmetrized before the solve (Section 3).
+  so $R$ is symmetrized before the solve.
 - Only output style 1 (equally spaced output times) is supported by the
   one-step time stepper.
 - The velocity field is analytic and steady.
