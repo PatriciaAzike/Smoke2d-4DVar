@@ -24,19 +24,29 @@ has been added by its centre.
 
 ## Build
 
-From the Smoke2d-4DVar build directory:
+Running `make` in the build directory builds `delat_impulse` along with `adjoint_forward`
 
-```sh
-cmake --build . --target delta_impulse -j2
-```
 
 ## Run
 
 From this directory:
 
 ```sh
-./run_delta_impulse.sh
+# 1. Link the executable here (once).
+ln -sf ../../../smoke2d-4DVar-build/examples/delta_impulse/delta_impulse .
+
+# 2. Write the gauges (needs ForestClaw's python/ directory on PYTHONPATH
+#    for fclaw_analysis.py).
+python3 write_gauges.py
+
+# 3. Run.
+./delta_impulse
 ```
+
+`write_gauges.py` reads the observation (`xm`, `ym`, `tm`) from
+`adjoint_options.ini`, writes `gauges.data`, and copies it into the run
+directories `adjoint/`, `forward/` and `model/`, creating them if needed.
+Re-run it whenever the observation in `adjoint_options.ini` changes.
 
 All runtime inputs and outputs stay here.  In particular, the raw files are
 written to `adjoint0/`, `forward0/`, and `model/` below this directory, rather
