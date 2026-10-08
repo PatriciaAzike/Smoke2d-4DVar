@@ -1,35 +1,30 @@
 #!/usr/bin/env python3
 """
-The #84/#85 single-impulse figure: alpha_m advecting backward, r_m built from it.
-
-    python3 plot_delta.py                      # physical t = 0.0, 0.7, 1.5
-    python3 plot_delta.py --t 0.3 0.9 1.5
-    python3 plot_delta.py --root . --t 0.0 0.2 0.4      # if output is alongside
+Reading and panel routines for the delta-impulse figures (alpha_m advecting
+backward, r_m built from it). plot_delta_impulse.py imports this module, picks
+the frames and sets the colour scale; this file is not run on its own.
 
 Panels are 990 x 910 at 300 dpi with style_panel.m's axes and colorbar rectangles,
-matching every other field panel in the paper,. The AMR patch outlines are drawn on.
+matching every other field panel in the paper. The AMR patch outlines are drawn on.
 
 TIME CONVENTION -- this is the thing that is easy to get wrong.
 
-The adjoint marches on a REVERSED clock. Its file frame N carries run time
-t_run = N*(tfinal/nout), and the physical time is tfinal - t_run. The representer
+The adjoint marches on a REVERSED clock. Its file frame N carries
+tau = N*(tfinal/nout), and the physical time is t = tfinal - tau. The representer
 runs on physical time directly. So the same physical instant is
 
     adjoint frame N        and        forward frame  nout - N
 
-This script therefore takes PHYSICAL times, looks up the nearest frame in each
-directory separately, and names the output by physical time, so
+clock() and nearest() therefore work in PHYSICAL times: the nearest frame is
+looked up in each directory separately, and panels are named by physical time, so
 
-    alpha_t00.70.png   pairs with   rm_t00.70.png
+    alpha_t00.80.png   pairs with   rm_t00.80.png
 
 Check: adjoint frame nout (physical t = 0) and forward frame 0 hold the same
 field, the representer's initial condition r_m(.,0) = W_i^{-1} alpha_m(.,0)
 (identical when W_i = 1); their mass and centroid should match.
-
-Colour scale is shared WITHIN each row and separate BETWEEN rows: alpha_m carries the
-impulse amplitude, r_m the accumulated correction, and they differ in magnitude.
 """
-import argparse, glob, os, re, sys
+import glob, os, re, sys
 import numpy as np
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -42,12 +37,7 @@ from fclaw_error import read_fort_q                      # noqa: E402
 
 LDOM = 2.0
 
-# Computer Modern, to match the paper's body text. matplotlib's default mathtext
-# is TeX-like but uses DejaVu glyphs, so "$\hat{q}$ at t = 0.40" came out in a
-# different face from the MATLAB panels, which used 'Interpreter','latex'.
-# text.usetex=True would be the exact route but this VM's latex has no dvipng,
-# so use matplotlib's bundled Computer Modern instead -- same glyphs, no
-# LaTeX dependency, and much faster.
+# Computer Modern, to match the paper's body text. 
 plt.rcParams.update({
     "mathtext.fontset": "cm",
     "font.family":      "serif",
@@ -67,16 +57,18 @@ CMAP = (LinearSegmentedColormap.from_list("parula", np.load(_par))
         if os.path.exists(_par) else plt.get_cmap("viridis"))
 
 
-def clock(d, tfinal, backward):
-    """{physical time: frame number} for every frame present in d."""
+def clock(directory, tfinal, backward):
+    """{physical time: frame number} for every frame present in directory."""
     out = {}
-    for f in sorted(glob.glob(os.path.join(d, "fort.t[0-9]" * 1 + "*"))):
+    for f in sorted(glob.glob(os.path.join(directory, "fort.t[0-9]" * 1 + "*"))):
         m = re.search(r"fort\.t(\d{4})$", f)
         if not m:
             continue
         trun = float(open(f).readline().split()[0])
-        tphys = (tfinal - trun) if backward else trun
-        out[round(tphys, 6) + 0.0] = int(m.group(1))
+        # trun is the solver clock: tau for the adjoint (backward), t otherwise.
+        # t_frame is the frame's physical time: T - tau for the adjoint, t otherwise.
+        t_frame = (tfinal - trun) if backward else trun
+        out[round(t_frame, 6) + 0.0] = int(m.group(1))
     return out
 
 
@@ -98,7 +90,7 @@ def to_uniform(patches, N):
     return Q
 
 
-def panel(patches, clim, label, tphys, out):
+def panel(patches, clim, label, t, out):
     N = int(round(LDOM / min(p["dx"] for p in patches)))
     Q = to_uniform(patches, N)
 
@@ -114,7 +106,7 @@ def panel(patches, clim, label, tphys, out):
     ax.set_xlim(0, LDOM); ax.set_ylim(0, LDOM); ax.set_aspect("equal")
     ax.set_xticks([0, 1, 2]); ax.set_yticks([0, 1, 2])
     ax.set_xlabel("x", fontsize=FS); ax.set_ylabel("y", fontsize=FS)
-    ax.set_title(r"%s at $t = %.2f$" % (label, tphys), fontsize=FS)
+    ax.set_title(r"%s at $t = %.2f$" % (label, t), fontsize=FS)
     ax.tick_params(labelsize=FS)
 
     cax = fig.add_axes(CB_POS)
@@ -124,45 +116,3 @@ def panel(patches, clim, label, tphys, out):
     fig.savefig(os.path.join(HERE, "panels", out), dpi=DPI, facecolor="w")
     plt.close(fig)
     print("    %-20s  %dx%d  %d patches" % (out, N, N, len(patches)))
-
-
-def row(d, times, tfinal, backward, label, tag):
-    if not os.path.isdir(d):
-        print("  %s does not exist yet -- skipped" % d); return
-    cl = clock(d, tfinal, backward)
-    if not cl:
-        print("  no fort.t files in %s -- skipped" % d); return
-
-    picked = []
-    for t in times:
-        n, tgot = nearest(cl, t)
-        ps = read_fort_q(os.path.join(d, "fort.q%04d" % n))
-        picked.append((n, tgot, ps))
-        print("  physical t=%.2f -> frame %02d (t=%.2f)" % (t, n, tgot))
-
-    vmin = min(min(p["q"].min() for p in ps) for _, _, ps in picked)
-    vmax = max(max(p["q"].max() for p in ps) for _, _, ps in picked)
-    # Headroom below zero so the far field is a lighter blue rather than parula's
-    # near-black. Proportional to the range, or the two rows lighten unequally.
-    if vmin > -0.01 * vmax:
-        vmin = -0.083 * vmax
-    print("  shared row scale [%.4g, %.4g]" % (vmin, vmax))
-    for _, tgot, ps in picked:
-        panel(ps, (vmin, vmax), label, tgot, "%s_t%05.2f.png" % (tag, tgot))
-
-
-if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--root", default=os.path.join(HERE, ".."),
-                    help="directory holding adjoint0/ and forward0/ (the run happens\n"
-                         "in the parent, so this defaults to ..)")
-    ap.add_argument("--t", type=float, nargs="+", default=[0.0, 0.7, 1.5],
-                    help="PHYSICAL times for the figure columns")
-    ap.add_argument("--tfinal", type=float, default=2.0)
-    a = ap.parse_args()
-
-    os.makedirs(os.path.join(HERE, "panels"), exist_ok=True)
-    print("alpha_m   (adjoint0, reversed clock: physical t = tfinal - t_run)")
-    row(os.path.join(a.root, "adjoint0"), a.t, a.tfinal, True,  r"$\alpha_m$", "alpha")
-    print("r_m       (forward0, physical clock)")
-    row(os.path.join(a.root, "forward0"), a.t, a.tfinal, False, r"$r_m$",      "rm")

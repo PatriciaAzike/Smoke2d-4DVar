@@ -33,14 +33,14 @@ def read_problem():
         "xm": first("xm"),
         "ym": first("ym"),
         "tm": first("tm"),
-        "pseudo_1d": int(user.get("pseudo-1d").split()[0]),
+        "pseudo_1d_experiment": user.get("pseudo-1d-experiment").split()[0].upper().startswith("T"),
         "wi": float(
             forward_config["forward-user"].get("W_i").split()[0]
         ),
     }
 
 
-def frame_at(directory, physical_time, tfinal, backward):
+def frame_at(directory, t, tfinal, backward):
     candidates = []
     for qfile in glob.glob(os.path.join(directory, "fort.q[0-9][0-9][0-9][0-9]")):
         suffix = qfile[-4:]
@@ -48,9 +48,11 @@ def frame_at(directory, physical_time, tfinal, backward):
         if not os.path.exists(tfile):
             continue
         with open(tfile) as stream:
-            run_time = float(stream.readline().split()[0])
-        time = tfinal-run_time if backward else run_time
-        candidates.append((abs(time-physical_time), time, qfile))
+            trun = float(stream.readline().split()[0])
+        # trun is the solver clock: tau for the adjoint (backward), t otherwise.
+        # t_frame is the frame's physical time: T - tau for the adjoint, t otherwise.
+        t_frame = tfinal-trun if backward else trun
+        candidates.append((abs(t_frame-t), t_frame, qfile))
     if not candidates:
         raise RuntimeError("no output frames in " + directory)
     return min(candidates)[1:]

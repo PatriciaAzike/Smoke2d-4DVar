@@ -9,10 +9,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import plot_delta as plotting
 
-# plot_delta writes below its own source directory by default.  Redirect its
-# panel output to this isolated case while retaining the paper's plotting style.
-plotting.HERE = HERE
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--t", type=float, nargs="+", default=[0.0, 0.8, 1.5])
 parser.add_argument("--tfinal", type=float, default=2.0)
@@ -25,14 +21,14 @@ def read_row(directory, backward):
     clock = plotting.clock(directory, args.tfinal, backward)
     picked = []
     for requested_time in args.t:
-        frame, physical_time = plotting.nearest(clock, requested_time)
+        frame, t_frame = plotting.nearest(clock, requested_time)
         patches = plotting.read_fort_q(
             os.path.join(directory, "fort.q%04d" % frame)
         )
-        picked.append((frame, physical_time, patches))
+        picked.append((frame, t_frame, patches))
         print(
             "  physical t=%.2f -> frame %02d (t=%.2f)"
-            % (requested_time, frame, physical_time)
+            % (requested_time, frame, t_frame)
         )
     return picked
 
@@ -58,13 +54,13 @@ if vmin > -0.01*vmax:
 clim = (vmin, vmax)
 print("shared two-row scale [%.4g, %.4g]" % clim)
 
-for _, physical_time, patches in alpha:
+for _, t_frame, patches in alpha:
     plotting.panel(
-        patches, clim, r"$\alpha_1$", physical_time,
-        "alpha_t%05.2f.png" % physical_time,
+        patches, clim, r"$\alpha_1$", t_frame,
+        "alpha_t%05.2f.png" % t_frame,
     )
-for _, physical_time, patches in representer:
+for _, t_frame, patches in representer:
     plotting.panel(
-        patches, clim, r"$r_1$", physical_time,
-        "rm_t%05.2f.png" % physical_time,
+        patches, clim, r"$r_1$", t_frame,
+        "rm_t%05.2f.png" % t_frame,
     )
