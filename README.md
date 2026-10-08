@@ -2,11 +2,11 @@
 
 Representer-Based Data Assimilation on Adaptively Refined Meshes for Idealized Smoke Transport
 
-Smoke2d_4DVar is a computational model for 2d idealized wildfire smoke transport.  A key feature of the model is that it incorporates 4DVar data assimilation using data using the representer method (Bennett, 2005).   Smoke2d-4DVar is built on [ForestClaw](https://github.com/ForestClaw/forestclaw),
+Smoke2d-4DVar is a computational model for 2d idealized wildfire smoke transport.  A key feature of the model is that it incorporates 4DVar data assimilation using data using the representer method (Bennett, 2002).   Smoke2d-4DVar is built on [ForestClaw](https://github.com/ForestClaw/forestclaw),
 a parallel, patch-based adaptive mesh refinement (AMR) framework that uses
 [p4est](https://www.p4est.org) for the mesh and the wave propagation algorithm finite-volume solvers (Leveque, 2002) . A smoke concentration is advected by a prescribed, velocity field,  A small number 
 of point observations of the concentration are assimilated by the representer method
-(Bennett, 2005), which gives the minimizer (optimal estimate) of the weak-constraint 
+(Bennett, 2002), which gives the minimizer (optimal estimate) of the weak-constraint 
 cost functional by combining one prior trajectory run with one adjoint and one 
 representer run per observation.
 
@@ -14,27 +14,26 @@ Every run in the method (the prior, each adjoint, each representer) has its own
 adaptive mesh. The meshes are coupled through ForestClaw's overlap exchange mechanism, 
 which interpolates a field from one mesh onto the cell centres of another.
 
-Smoke2d_4DVar is the 2d version of a larger 3d code and is described in the paper <fill in paper name here>
+Smoke2d-4DVar is the 2d version of a larger 3d code and is described in the paper Azike et al., (2026).
 
 ---
 
 ## Contents
 
 1. [The smoke transport problem](#1-the-smoke-transport-problem)
-2. [Repository layout](#4-repository-layout)
-3. [Requirements](#5-requirements)
-4. [Building ForestClaw](#6-building-forestclaw)
-5. [Building Smoke2d-4DVar](#7-building-smoke2d-4dvar)
-6. [Running the assimilation (`adjoint_forward`)](#8-running-the-assimilation-adjoint_forward)
-7. [Configuration reference](#9-configuration-reference)
-8. [Output](#10-output)
-9. [Verification: the delta-impulse test (`delta_impulse`)](#11-verification-the-delta-impulse-test-delta_impulse)
-10. [Plotting](#12-plotting)
-11. [Uniform-mesh reference runs](#13-uniform-mesh-reference-runs)
-12. [Troubleshooting](#14-troubleshooting)
-13. [Known limitations](#15-known-limitations)
-14. [References](#16-references)
-15. [License](#17-license)
+2. [Repository layout](#2-repository-layout)
+3. [Requirements](#3-requirements)
+4. [Building Smoke2d-4DVar](#4-building-smoke2d-4dvar)
+5. [Running the assimilation (`adjoint_forward`)](#5-running-the-assimilation-adjoint_forward)
+6. [Configuration reference](#6-configuration-reference)
+7. [Output](#7-output)
+8. [Verification: the delta-impulse test (`delta_impulse`)](#8-verification-the-delta-impulse-test-delta_impulse)
+9. [Plotting](#9-plotting)
+10. [Uniform-mesh reference runs](#10-uniform-mesh-reference-runs)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Known limitations](#12-known-limitations)
+13. [References](#13-references)
+14. [License](#14-license)
 
 ---
 
@@ -78,7 +77,7 @@ Smoke2d-4DVar/
 
 An executable for each example (adjoint_forward and delta_impulse) is built. 
 
-## 5. Requirements
+## 3. Requirements
 
 | Requirement | Notes |
 |---|---|
@@ -90,9 +89,9 @@ An executable for each example (adjoint_forward and delta_impulse) is built.
 
 In what follows, we describe the process that automatically downloads and builds needed libraries, including ForestClaw and p4est.  A more advanced user may wish to build these libraries separately.  
 
-## 6. Building Smoke2d-4DVar
+## 4. Building Smoke2d-4DVar
 
-We recommend building Smoke2d_4DVar out of source, in a directory parallel to the repository. 
+We recommend building Smoke2d-4DVar out of source, in a directory parallel to the repository. 
 
 ```sh
 git clone https://github.com/PatriciaAzike/Smoke2d-4DVar.git
@@ -102,7 +101,7 @@ mkdir smoke2d-4DVar-build
 Create an executable configuration file with the following commands. 
 
 ```sh
-# File : config-smoke2d_4DVar.sh
+# File : config-Smoke2d-4DVar.sh
 
 cmake \
     -DCMAKE_C_COMPILER=gcc \
@@ -119,7 +118,7 @@ Then, configure, build and install the executables `adjoint_forward` and `delta_
 
 ```sh
 cd smoke2d-4DVar-build
-../config-smoke2d_4DVar
+../config-Smoke2d-4DVar
 make -j4 install
 ```
 This builds:
@@ -127,7 +126,7 @@ This builds:
 - `<build-directory>/examples/adjoint_forward/adjoint_forward`
 - `<build-directory>/examples/delta_impulse/delta_impulse`
 
-## 8. Running the assimilation (`adjoint_forward`)
+## 5. Running the assimilation (`adjoint_forward`)
 
 All inputs are read from, and all outputs written below,
 `examples/adjoint_forward/`.
@@ -173,7 +172,7 @@ beta[0] = ...                        the coefficients β
 ...
 ```
 
-## 9. Configuration reference
+## 6. Configuration reference
 
 The driver reads three option files, one per kind of run. Each configuration file has a
 sections : (`[*-user]`), a mesh section (`[*-clawpatch]`), a run section
@@ -224,7 +223,7 @@ values for both.
 | `ax`, `bx`, `ay`, `by` | 0, 2, 0, 2 | domain |
 | `periodic_x`, `periodic_y` | True | periodic boundaries |
 
-## 10. Output
+## 7. Output
 
 All frames are ForestClaw ASCII output (`fort.qNNNN` data, `fort.tNNNN`
 header with the time and number of patches), `NNNN = 0000 … nout`.
@@ -245,7 +244,7 @@ Checkpoints are `fort_frame_NNNN.checkpoint` and
 `fort_frame_NNNN.partition`. They are needed during the run and can be
 deleted afterwards.
 
-## 11. Verification: the delta-impulse test (`delta_impulse`)
+## 8. Verification: the delta-impulse test (`delta_impulse`)
 
 `examples/delta_impulse/` checks the adjoint–representer machinery on one
 observation, with the observation applied as an **instantaneous** impulse:
@@ -262,16 +261,15 @@ It reuses the `adjoint_forward` sources, with two differences:
   after the representer and does not solve for $\beta$.
 
 ```sh
-cd Smoke2d-4DVar/examples/delta_impulse
-./run_delta_impulse.sh                             # sets up run directories, runs
-python3 check_delta_impulse.py                     # checks the event frame and the handoff
-python3 plot_delta_impulse.py --t 0.0 0.8 1.5      # panels in panels/
+ln -sf <build-directory>/examples/delta_impulse/delta_impulse .
+python3 write_gauges.py                         # writes gauges.data, sets up run directories
+./delta_impulse                                 # runs
+python3 check_delta_impulse.py                  # checks the event frame and the handoff
+python3 plot_delta_impulse.py --t 0.0 0.8 1.5   # panels in panels/
 ```
 
-`run_delta_impulse.sh` looks for the executable in
-`../../../smoke2d-4DVar-build/examples/delta_impulse/`; set
-`DELTA_IMPULSE_EXE` to use another path. All inputs and outputs stay in
-this directory.
+`write_gauges.py` needs `fclaw_analysis.py` from ForestClaw's `python/` 
+directory on `PYTHONPATH`.
 
 For the configured case (one observation at $(1.5, 1.0)$, $t_m = 1.5$,
 $\varepsilon = 0.01$), the event frame should have mass ≈ 1, centroid
@@ -282,7 +280,7 @@ representer peak at $t = t_m$. See
 [`examples/delta_impulse/README.md`](examples/delta_impulse/README.md) for
 details.
 
-## 12. Plotting
+## 9. Plotting
 
 **MATLAB** (`examples/adjoint_forward/*.m`). `setplot2.m` and
 `afterframe.m` configure the Clawpack/ForestClaw MATLAB graphics (e.g.
@@ -295,7 +293,7 @@ prior disk (`filament_soln.m`).
 adjoint and representer at chosen physical times with one shared colour
 scale; `plot_delta.py` holds the reading and panel routines it uses.
 
-## 13. Uniform-mesh reference runs
+## 10. Uniform-mesh reference runs
 
 A uniformly refined reference is obtained by setting `minlevel = maxlevel`
 in each option file (level 4 for the prior and representers, level 5
@@ -305,7 +303,7 @@ run took $1293 \pm 15$ s and the uniform reference $23{,}667 \pm 619$ s
 (mean ± sample standard deviation of three runs each), a speedup of about
 18.3. Almost all of the saving is in the adjoint solves.
 
-## 14. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
@@ -316,7 +314,7 @@ run took $1293 \pm 15$ s and the uniform reference $23{,}667 \pm 619$ s
 | `File does not exist` when "Restarting model from checkpoint file" | A checkpoint in `model/` (or `adjoint{j}/`, `forward{j}/`) was deleted or moved during the run. Re-run without touching those directories. |
 | Stale results after changing options | Output directories are overwritten, not cleared; delete old `fort.*` files before a run if frame counts change. |
 
-## 15. Known limitations
+## 12. Known limitations
 
 - Tested on one MPI rank. The overlap exchange is written for distributed
   meshes, but multi-rank runs have not been validated.
@@ -326,12 +324,14 @@ run took $1293 \pm 15$ s and the uniform reference $23{,}667 \pm 619$ s
   one-step time stepper.
 - The velocity field is analytic and steady.
 
-## 16. References
+## 13. References
 
+- P. O. Azike et al., "Representer-Based Data Assimilation on Adaptively 
+  Refined Meshes for Idealized Wildfire Smoke Transport", 2026.
 - A. F. Bennett, *Inverse Methods in Physical Oceanography*, Cambridge
   University Press, 1992.
 - A. F. Bennett, *Inverse Modeling of the Ocean and Atmosphere*, Cambridge
-  University Press, 2005.
+  University Press, 2002.
 - D. Calhoun and C. Burstedde, "ForestClaw: A parallel algorithm for
   patch-based adaptive mesh refinement on a forest of quadtrees,"
   arXiv:1703.03116, 2017.
@@ -341,7 +341,7 @@ run took $1293 \pm 15$ s and the uniform reference $23{,}667 \pm 619$ s
 - R. J. LeVeque, *Finite Volume Methods for Hyperbolic Problems*, Cambridge
   University Press, 2002.
 
-## 17. License
+## 14. License
 
 BSD 3-Clause; see [LICENSE](LICENSE). ForestClaw is distributed under its
 own BSD-style license, and p4est under the GPL (version 2 or later).

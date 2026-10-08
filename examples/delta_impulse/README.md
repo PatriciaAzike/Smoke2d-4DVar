@@ -33,7 +33,7 @@ From this directory:
 
 ```sh
 # 1. Link the executable here (once).
-ln -sf ../../../smoke2d-4DVar-build/examples/delta_impulse/delta_impulse .
+ln -sf <build-directory>/examples/delta_impulse/delta_impulse .
 
 # 2. Write the gauges (needs ForestClaw's python/ directory on PYTHONPATH
 #    for fclaw_analysis.py).
