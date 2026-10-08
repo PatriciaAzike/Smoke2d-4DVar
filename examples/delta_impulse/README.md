@@ -24,7 +24,7 @@ has been added by its centre.
 
 ## Build
 
-Running `make` in the build directory builds `delat_impulse` along with `adjoint_forward`
+Running `make` in the build directory builds `delta_impulse` along with `adjoint_forward`
 
 
 ## Run
