@@ -8,9 +8,6 @@ Regenerate the paper panels:
 
 Inputs are the frames copied into this folder.
 
-WHY: style_panel.m leaves a bottom margin of 0.132*910 = 120 px. At FontSize 16 on
-a 300 dpi canvas one text line is ~67 px, and the bottom needs tick labels plus an
-xlabel, about 175 px. So the xlabel fell off the canvas and the ylabel was clipped.
 
 New rectangle, measured so nothing clips with xlabel, ylabel, title and a
 two-digit colorbar label all present (clearances L 25, R 36, T 43, B 23 px):
@@ -18,9 +15,6 @@ two-digit colorbar label all present (clearances L 25, R 36, T 43, B 23 px):
     field panels   axes [0.165 0.205 0.610 0.665]   cb [0.815 0.205 0.038 0.665]
     line panels    axes [0.165 0.205 0.790 0.665]   (no colorbar, so wider)
 
-Both share the left edge, the bottom and the height, so a line panel above a field
-panel still aligns. The cost is the plot box: 604 x 605 px against 683 x 700, so
-the data area prints ~12% smaller at the same \\includegraphics width.
 
 clim and tick values were measured off the existing PNGs by locating the colorbar
 tick labels and solving the linear map, then cross-checked against afterframe.m:
