@@ -26,12 +26,10 @@ subroutine adjoint_src2(maxmx,maxmy,meqn,mbc,mx,my, &
 
     tau_m = tfinal - tm(obs_index)
 
-    !! tol is far above round-off and far below any dt.
+    !! tolerance set above round-off 
     tol = 1.d-12
 
-    !! Each step owns (tau, tau+dt].  Comparing both ends with the same point,
-    !! tau_m - tol, catches a step that lands a round-off short of tau_m and
-    !! applies the event exactly once.
+    !! Each step owns (tau, tau+dt].  Compare both ends with the same point
     crosses_event = (tau .lt. tau_m - tol) .and. &
                     (tau + dt .ge. tau_m - tol)
 
