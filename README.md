@@ -1,20 +1,19 @@
 # Smoke2d-4DVar
 
-Representer-Based Data Assimilation on Adaptively Refined Meshes for Idealized Smoke Transport
+Representer-Based Data Assimilation on Adaptively Refined Meshes for Idealized Wildfire Smoke Transport
 
-Smoke2d-4DVar is a computational model for 2d idealized wildfire smoke transport.  A key feature of the model is that it incorporates 4DVar data assimilation using data using the representer method (Bennett, 2002).   Smoke2d-4DVar is built on [ForestClaw](https://github.com/ForestClaw/forestclaw),
+Smoke2d-4DVar is a computational model for idealized two-dimensional wildfire smoke transport. A key feature of the model is that it implements 4D-Var data assimilation using the representer method (Bennett, 2002).   Smoke2d-4DVar is built on [ForestClaw](https://github.com/ForestClaw/forestclaw),
 a parallel, patch-based adaptive mesh refinement (AMR) framework that uses
-[p4est](https://www.p4est.org) for the mesh and the wave propagation algorithm finite-volume solvers (Leveque, 2002) . A smoke concentration is advected by a prescribed, velocity field,  A small number 
+[p4est](https://www.p4est.org) for the mesh management and the wave propagation algorithm finite-volume solvers (LeVeque, 2002). The smoke concentration is advected by a prescribed velocity field.  A small number 
 of point observations of the concentration are assimilated by the representer method
-(Bennett, 2002), which gives the minimizer (optimal estimate) of the weak-constraint 
-cost functional by combining one prior trajectory run with one adjoint and one 
-representer run per observation.
+(Bennett, 2002), which gives the minimizer, or optimal estimate, of the weak-constraint 
+cost functional.
 
 Every run in the method (the prior, each adjoint, each representer) has its own 
 adaptive mesh. The meshes are coupled through ForestClaw's overlap exchange mechanism, 
 which interpolates a field from one mesh onto the cell centres of another.
 
-Smoke2d-4DVar is the 2d version of a larger 3d code and is described in the paper Azike et al., (2026).
+Smoke2d-4DVar is the 2D version of a larger 3D code, and its implementation and results are described in Azike et al., (2026).
 
 ---
 
@@ -46,9 +45,9 @@ $$
 \qquad q(\mathbf{x},0) = q_0(\mathbf{x}),
 $$
 
-where $\mathbf u$ is a steady, velocity $\mathbf{u}(x,y) = (u(x,y),v(x,y))$. 
+where $\mathbf u$ is a prescribed, steady velocity field $\mathbf{u}(x,y) = (u(x,y),v(x,y))$. 
 
-The code illustrates from the paper cited above. 
+The code implements the methods described in the submitted manuscript. 
 
 ## 2. Repository layout
 
@@ -59,7 +58,7 @@ Smoke2d-4DVar/
 ├── CMakeLists.txt              top level; finds ForestClaw
 ├── src/                        library smoke2d-4DVar
 │   ├── smoke2d_*.{c,h,f90}     options, gauge helpers, Fortran module
-│   ├── 2d/                     2D transport: prescribe velocity field and store in auxiliary arrays
+│   ├── 2d/                     2D transport: prescribed velocity field and store in auxiliary arrays
 │   └── fortran_source/         clawpatch46_* tagging/interpolation routines used by the AMR routines
 └── examples/
     ├── adjoint_forward/        the assimilation (Section 5)
@@ -118,7 +117,7 @@ Then, configure, build and install the executables `adjoint_forward` and `delta_
 
 ```sh
 cd smoke2d-4DVar-build
-../config-Smoke2d-4DVar
+../config-Smoke2d-4DVar.sh
 make -j4 install
 ```
 This builds:
@@ -174,7 +173,7 @@ beta[0] = ...                        the coefficients β
 
 ## 6. Configuration reference
 
-The driver reads three option files, one per kind of run. Each configuration file has a
+The driver reads three option files, one per kind of run. Each configuration file has the following
 sections : (`[*-user]`), a mesh section (`[*-clawpatch]`), a run section
 (`[adjoint]`, `[forward]`, `[model]`) and a solver section (`[*-clawpack46]`).
 The run and solver sections take the standard ForestClaw and Clawpack 4.6
