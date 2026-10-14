@@ -40,10 +40,11 @@ Smoke2d-4DVar is the 2D version of a larger 3D code, and its implementation and 
 
 
 The evolution of smoke concentration $q(x,y,t)$ in an idealized setting can be described by the transport model
-$$
+
+```math
 \frac{\partial q}{\partial t} + \nabla\cdot(\mathbf{u} q) = 0,
 \qquad q(\mathbf{x},0) = q_0(\mathbf{x}),
-$$
+```
 
 where $\mathbf u$ is a prescribed, steady velocity field $\mathbf{u}(x,y) = (u(x,y),v(x,y))$. 
 
