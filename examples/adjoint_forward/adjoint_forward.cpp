@@ -23,11 +23,23 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-/* This example demonstrates the use of fclaw_overlap_exchange to exchange
- * interpolation data between two meshes.
- * Both meshes have a clearly assigned role:
- *  forward(renamed as forward) (e.g. Gemini) - queries data for points - represented by forward
- *  producer(renamed as adjoint) (e.g. MAGIC) - provides data - represented by adjoint. */
+/* Representer method (weak-constraint 4D-Var) for idealized smoke transport
+
+
+   1. model         : prior run q_F (checkpointed at every output frame)
+   2. for each observation j
+        adjoint     : alpha_j, backward in time, forced by observation j
+                      (checkpointed at every output frame)
+        representer : r_j, forward in time, with r_j(0) = alpha_j(0)/W_i and
+                      source alpha_j(t)/W_f.  Before each representer step
+                      the adjoint is restarted from the nearest checkpoint
+                      and advanced to tau = T - t.
+   3. solve (R + W_eps^{-1}) beta = d - q_F, R_ij = r_j(x_i, y_i, t_i). Here 
+      R is R_sym, the symmetrized R
+   4. q_hat = q_F + sum_j beta_j r_j, written to pwd at every frame.
+
+*/
+
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -70,249 +82,344 @@ typedef struct fclaw_gauge_acc
 } fclaw_gauge_acc_t;
 
 
-int m = 1;
+
+/* ----------------------------- Directories --------------------------------- */
 
 static
-void setup_overlap(fclaw_global_t *forward_glob,\
-                   fclaw_global_t *adjoint_glob,
-                   overlap_forward_metadata_t *c,
-                   adjoint_geometry_t *adjoint_geo)
+void change_dir(const char *dir)
 {
-    
-    fclaw_options_t *adjoint_opt = fclaw_get_options(adjoint_glob);
+    if (chdir(dir) != 0)
+    {
+        fclaw_abortf("adjoint_forward: could not change to directory %s\n", dir);
+    }
+}
 
-    /* -------------- setup overlap infomation -------------------*/
-    /* compute process-local query points on the forward side */
+/* Create dir if needed and remove output and checkpoints left by an earlier run */
+static
+void make_dir(const char *dir)
+{
+    mkdir(dir, 0755);
 
-    //overlap_forward_t forward, *c = &forward;
-    c->glob = forward_glob;
-    c->domain = forward_glob->domain;
+    char cmd[4*BUFSIZ];
+    snprintf(cmd, sizeof(cmd),
+             "rm -f %s/fort.* %s/fort_frame_*.checkpoint %s/fort_frame_*.partition",
+             dir, dir, dir);
+    if (system(cmd) != 0)
+    {
+        fclaw_global_essentialf("adjoint_forward: could not clear directory %s\n", dir);
+    }
+}
 
-    /* AMR breaks the old one-query-per-patch assumption: a forward patch may
-     * overlap several adjoint patches or a different refinement level.  Store
+/* Restore glob from output frame iframe of the checkpoints written in dir */
+static
+void reinitialize(fclaw_global_t *glob, const char *dir, int iframe)
+{
+    char restart_file[BUFSIZ];
+    char partition_file[BUFSIZ];
+    snprintf(restart_file, BUFSIZ, "fort_frame_%04d.checkpoint", iframe);
+    snprintf(partition_file, BUFSIZ, "fort_frame_%04d.partition", iframe);
+
+    change_dir(dir);
+    fclaw_reinitialize_from_file(glob, restart_file, partition_file);
+    change_dir("..");
+}
+
+/* ------------------------------- Overlap ----------------------------------- */
+
+/* Query points (one per cell centre) on the consumer mesh, and the geometry of
+   the producer, the mesh that has the data.  Used both ways: adjoint (P) ->
+   representer (c) and representer (P) -> model (C). */
+static
+void setup_overlap(fclaw_global_t *consumer_glob,
+                   fclaw_global_t *producer_glob,
+                   overlap_forward_metadata_t *c,
+                   adjoint_geometry_t *producer_geo)
+{
+    c->glob = consumer_glob;
+    c->domain = consumer_glob->domain;
+
+    /* AMR breaks the old one-query-per-patch assumption: a consumer patch may
+     * overlap several producer patches or a different refinement level.  Store
      * one query point per cell center so ForestClaw can find the correct leaf
-     * patch on the source side for each cell. */
-    const fclaw_clawpatch_options_t *forward_clawpatch_opt =
-        fclaw_clawpatch_get_options(forward_glob);
+     * patch on the producer side for each cell. */
+    const fclaw_clawpatch_options_t *consumer_clawpatch_opt =
+        fclaw_clawpatch_get_options(consumer_glob);
     c->num_cells_in_patch =
-        forward_clawpatch_opt->mx*forward_clawpatch_opt->my;
+        consumer_clawpatch_opt->mx*consumer_clawpatch_opt->my;
 
     if (c->query_points != NULL)
     {
         sc_array_destroy(c->query_points);
         c->query_points = NULL;
-    }  
+    }
     create_query_points(c);
 
-    adjoint_geo->fclaw_opt = adjoint_opt;
-    adjoint_geo->blocks    = adjoint_glob->domain->blocks;
+    producer_geo->fclaw_opt = fclaw_get_options(producer_glob);
+    producer_geo->blocks    = producer_glob->domain->blocks;
 
     /* output the interpolation data for all query points */
-    output_query_points (c);
-    
-
+    output_query_points(c);
 }
 
-/* We set up another overlap to map representer solution to model domain.*/
+/* alpha -> representer aux (and, while u->init_flag = 1, the representer itself) */
 static
-void setup_overlap_qhat_update(fclaw_global_t *model_glob,\
-                   fclaw_global_t *representer_glob,
-                   overlap_forward_metadata_t *c,
-                   adjoint_geometry_t *representer_geo)
+void map_adjoint_to_representer(fclaw_global_t *adjoint_glob,
+                                fclaw_global_t *representer_glob,
+                                overlap_forward_metadata_t *c,
+                                adjoint_geometry_t *geo,
+                                overlap_patch_user_t *u)
 {
-    fclaw_options_t *representer_opt = fclaw_get_options(representer_glob);
-
-    /* -------------- setup overlap infomation -------------------*/
-    /* compute process-local query points on the model side */
-
-    //overlap_forward_t model, *c = &model;
-    c->glob = model_glob;
-    c->domain = model_glob->domain;
-
-    /* Same AMR overlap rule as above: model and representer meshes may no
-     * longer have matching patch layouts, so qhat receives one query per model
-     * cell center. */
-    const fclaw_clawpatch_options_t *model_clawpatch_opt =
-        fclaw_clawpatch_get_options(model_glob);
-    c->num_cells_in_patch =
-        model_clawpatch_opt->mx*model_clawpatch_opt->my;
-
-    if (c->query_points != NULL)
-    {
-        sc_array_destroy(c->query_points);
-        c->query_points = NULL;
-    } 
-    
-    create_query_points(c);
-
-    representer_geo->fclaw_opt = representer_opt;
-    representer_geo->blocks    = representer_glob->domain->blocks;
-
-    /* output the interpolation data for all query points */
-    output_query_points (c);
-
+    setup_overlap(representer_glob, adjoint_glob, c, geo);
+    fclaw_overlap_exchange(adjoint_glob->domain, c->query_points,
+                           overlap_interpolate_patch, u);
 }
 
+/* q_model <- q_model + beta[j] r_j */
 static
-void get_gauges(fclaw_global_t* glob, double *q_out)
+void map_representer_to_model(fclaw_global_t *representer_glob,
+                              fclaw_global_t *model_glob,
+                              overlap_forward_metadata_t *c,
+                              adjoint_geometry_t *geo,
+                              int j, double *beta)
 {
-    fclaw_gauge_acc_t* gauge_acc = 
-        (fclaw_gauge_acc_t*) fclaw_diagnostics_get_acc(glob)->gauge_accumulator;
+    setup_overlap(model_glob, representer_glob, c, geo);
 
+    overlap_patch_user_t u;
+    u.meta = c;
+    u.geo = geo;
+    u.rep_idx = j;
+    u.beta = beta;
+    fclaw_overlap_exchange(representer_glob->domain, c->query_points,
+                           overlap_interpolate_rep_to_initial_estimate, &u);
+}
 
-    if (fclaw_diagnostics_get_acc(glob) == NULL)
+/* -------------------------------- Gauges ----------------------------------- */
+
+/* q_out[i] = the last value recorded at gauge i.  Returns the number of gauges:
+   0 if the run has none (output-gauges = F, or no gauges in gauges.data), and
+   otherwise mdata, one gauge per observation. */
+static
+int get_gauges(fclaw_global_t* glob, double *q_out, int mdata)
+{
+    fclaw_diagnostics_accumulator_t *acc = fclaw_diagnostics_get_acc(glob);
+    fclaw_gauge_acc_t *gauge_acc =
+        (acc == NULL) ? NULL : (fclaw_gauge_acc_t*) acc->gauge_accumulator;
+
+    if (gauge_acc == NULL || gauge_acc->gauges == NULL || gauge_acc->num_gauges == 0)
     {
-        printf("get_gauges: diagnostics accumulator is NULL\n");
-        FCLAW_ASSERT(0);
-    }
-    if (gauge_acc == NULL)
-    {
-        printf("get_gauges: gauge accumulator is NULL\n");
-        return; FCLAW_ASSERT(0);
+        return 0;
     }
 
-    fclaw_gauge_t *gauges = gauge_acc->gauges;
-    if (gauges == NULL || gauge_acc->num_gauges == 0)
-    {
-        printf("No gauges\n");
-        FCLAW_ASSERT(0);
-    }
-
-    //fclaw_gauge_t* g = &gauges[0];
     int num_gauges = gauge_acc->num_gauges;
-
-    if (num_gauges != m)
+    if (num_gauges != mdata)
     {
-        printf("get_gauges: FATAL -- accumulator has %d gauges but mdata = %d."
-               "   gauges.data is stale. Regenerate it\n",
-               num_gauges, m);
-        exit(1);
+        fclaw_abortf("get_gauges: the run has %d gauges but mdata = %d.  "
+                     "gauges.data is stale: regenerate it.\n", num_gauges, mdata);
     }
 
-    for(int i = 0; i < num_gauges; i++)
+    for (int i = 0; i < num_gauges; i++)
     {
-        fclaw_gauge_t *g = &gauges[i];
+        fclaw_gauge_t *g = &gauge_acc->gauges[i];
 
         fclaw_clawpatch_gauge_data_t **gauge_buffer;
         int kmax;
-
         fclaw_gauges_get_buffer(glob, g, &kmax, (void***) &gauge_buffer);
-        if (gauge_buffer == NULL || kmax <= 0)
+
+        /* The last value the gauge recorded */
+        fclaw_clawpatch_gauge_data_t *guser = NULL;
+        if (gauge_buffer != NULL && kmax > 0)
         {
-            printf("No gauge buffer available\n");
-            FCLAW_ASSERT(0);
+            guser = gauge_buffer[kmax-1];
+        }
+        if (guser == NULL)
+        {
+            fclaw_abortf("get_gauges: gauge %d (observation %d) recorded no value; "
+                         "check its time window in gauges.data against tm.\n",
+                         i, i + 1);
         }
 
-        //for(int k = 0; k < kmax; k++)
-        {
-            fclaw_clawpatch_gauge_data_t *guser = gauge_buffer[kmax-1];
-            if (guser == NULL)
-                FCLAW_ASSERT(0);
-
-            int meqn = guser->meqn;
-            for(int mq = 0; mq < meqn; mq++)
-            {
-
-                q_out[i] = guser->qvar[mq];
-            }
-            printf("get_gauges: q_out[%d] = %24.16e\n", i, q_out[i]);
-
-            //printf("%24.16e\n",*q_out);
-        }
-
+        FCLAW_ASSERT(guser->meqn == 1);
+        q_out[i] = guser->qvar[0];
+        printf("get_gauges: q_out[%d] = %24.16e\n", i, q_out[i]);
     }
-
-    //fclaw_clawpatch_gauge_data_t *guser = gauge_buffer[0];
-    
+    return num_gauges;
 }
 
+/* --------------------------------- Model ----------------------------------- */
 
+/* Run the model (the prior: no source term) to T in dir, with a checkpoint at
+   every output frame.  model_glob is not advanced again: compute_beta reads
+   q_F at the gauges from it, and the q_hat stage restores it from the
+   checkpoints. */
 static
-void run_program(fclaw_global_t *model_glob,\
-                 fclaw_global_t **representer_glob,\
-                 fclaw_global_t **adjoint_glob,\
-                 overlap_forward_metadata_t *c,
-                 adjoint_geometry_t *adjoint_geo)
+void run_model(fclaw_global_t *model_glob, const char *dir)
 {
-
-    /*
-    We run the model problem to get qF (initial estimate). We also store the value of qF at gauge points
-    for use in computing the optimal beta.
-
-    What follows works for a multiple observations
-    */
-    fclaw_options_t *fclaw_opt_model = fclaw_get_options(model_glob);
+    fclaw_options_t *fclaw_opt = fclaw_get_options(model_glob);
     fc2d_clawpack46_options_t *claw_opt = fc2d_clawpack46_get_options(model_glob);
     claw_opt->src_term = 0;
 
-    chdir("model");
-    fclaw_opt_model->checkpoint = 1;
-
+    change_dir(dir);
+    fclaw_opt->checkpoint = 1;
     fclaw_output_checkpoint(model_glob, 0);
-    
     fclaw_run(model_glob);
+    fclaw_opt->checkpoint = 0;
+    change_dir("..");
+}
 
-    /* Checkpoint model_glob*/
-    int iframes = fclaw_opt_model->nout + 1;
+/* ------------------------------ Coefficients ------------------------------- */
 
-    char model_restart_files[iframes][BUFSIZ];
-    char model_partition_files[iframes][BUFSIZ];
-
-    for (int i = 0; i < iframes; i++)
+/* Solve (R_sym + W_eps^{-1}) beta = d - q_F, where q_F and R(i,j) = r_j are
+   the model and the representers at the gauges, and R_sym = (R + R^T)/2.
+   Returns 0, and leaves beta alone, if the runs have no gauges. */
+static
+int compute_beta(fclaw_global_t *model_glob,
+                 fclaw_global_t **representer_glob,
+                 const adjoint_options_t *adj_opt,
+                 int mdata, double beta[])
+{
+    /* 1. The model (prior) at the observation locations */
+    double *qF = new double[mdata];
+    printf("Calling get_gauges for model\n");
+    if (get_gauges(model_glob, qF, mdata) == 0)
     {
-        snprintf(model_restart_files[i], BUFSIZ, "fort_frame_%04d.checkpoint", i);
-        snprintf(model_partition_files[i], BUFSIZ, "fort_frame_%04d.partition", i);
-
-        
+        delete[] qF;
+        return 0;
     }
-    chdir("..");
 
-    fclaw_opt_model->checkpoint = 0;
+    /* 2. The representers at the observation locations:
+          R_ij = r_j at gauge i, stored column by column in A */
+    double *Rj = new double[mdata];
+    double *A  = new double[mdata*mdata];
 
-    
+    for (int j = 0; j < mdata; j++)
+    {
+        printf("Calling get_gauges for representer %d (observation %d)\n", j, j + 1);
+        if (get_gauges(representer_glob[j], Rj, mdata) == 0)
+        {
+            fclaw_abortf("compute_beta: the model has gauges but representer %d has "
+                         "none (check output-gauges in forward_options.ini).\n", j);
+        }
+        for (int i = 0; i < mdata; i++)
+        {
+            A[i + j*mdata] = Rj[i];
+        }
+    }
+    delete[] Rj;
+
+    /* --- Representer-matrix symmetry: forward/adjoint consistency check ---
+        We have a small asymmetry*/
+    double rmax = 0.0;
+    double asym = 0.0;
+    double fro_diff = 0.0;
+    double fro_R = 0.0;
+
+    for (int i = 0; i < mdata; i++)
+        for (int j = 0; j < mdata; j++)
+        {
+            double aij = A[i + j*mdata];
+            double aji = A[j + i*mdata];
+            
+            if (fabs(aij)       > rmax) rmax = fabs(aij);
+            if (fabs(aij - aji) > asym) asym = fabs(aij - aji);
+            fro_diff += (aij - aji) * (aij - aji);
+            fro_R    += aij * aij;
+        }
+    printf("Representer matrix: max|R_ij - R_ji| = %.3e, "
+           "relative asymmetry = %.3e\n", asym, asym / rmax);
+    printf("frobenius norm: Representer matrix: ||R - R^T||_F / ||R||_F = %.3e\n",
+           sqrt(fro_diff) / sqrt(fro_R));
+
+    /* We remove the asymmetry here */
+    for (int i = 0; i < mdata; i++)
+        for (int j = i + 1; j < mdata; j++)
+        {
+            double avg = 0.5 * (A[i + j*mdata] + A[j + i*mdata]);
+            A[i + j*mdata] = avg;
+            A[j + i*mdata] = avg;
+        }
+
+    /* Add W^{-1} to the diagonal; right-hand side h = d - q_F */
+    double *h = new double[mdata];
+    for (int i = 0; i < mdata; i++)
+    {
+        A[i + i*mdata] += 1.0 / adj_opt->W_eps[i];
+        h[i] = adj_opt->dm[i] - qF[i];
+    }
+
+    /* Solve (R + W^-1) beta = h using dgesv; it overwrites h with the solution */
+    int n    = mdata;
+    int nrhs = 1;
+    int lda  = mdata;
+    int ldb  = mdata;
+    int info;
+    int *ipiv = new int[mdata];
+
+    dgesv_(&n, &nrhs, A, &lda, ipiv, h, &ldb, &info);
+    if (info != 0)
+    {
+        fclaw_abortf("compute_beta: dgesv failed; info = %d\n", info);
+    }
+    for (int i = 0; i < mdata; i++)
+    {
+        beta[i] = h[i];
+        printf("beta[%d] = %24.16e\n", i, beta[i]);
+    }
+
+    delete[] h;
+    delete[] ipiv;
+    delete[] A;
+    delete[] qF;
+    return 1;
+}
+
+/* ------------------------------- Program ----------------------------------- */
+
+static
+void run_program(fclaw_global_t *model_glob,
+                 fclaw_global_t **representer_glob,
+                 fclaw_global_t **adjoint_glob,
+                 overlap_forward_metadata_t *c,
+                 adjoint_geometry_t *geo,
+                 int mdata)
+{
+    /* Optimal estimate written by an earlier run */
+    if (system("rm -f fort.*") != 0)
+    {
+        fclaw_global_essentialf("adjoint_forward: could not remove old fort.* files\n");
+    }
+
+    /* ---------------- 1. Model (prior q_F), checkpointed ------------------ */
+    run_model(model_glob, "model");
+
     /*
-        Here is the setup with the checkpoints that enable us to solve for the 
-        representer case. We run the adjoint problem and store it in a glob. 
+        Here is the setup with the checkpoints that enable us to solve for the
+        representer case. We run the adjoint problem and store it in a glob.
         Then we map the adjoint solution to the representer domain, using the
         adjoint to initialize the representer solution and also in the source
         term. We will be checkpointing both the adjoint and representer solu-
-        tions. We checkpoint the adjoint because we need it to restart the 
+        tions. We checkpoint the adjoint because we need it to restart the
         representer simulation. On the other hand, we checkpoint the represen-
-        ter solution because we need to map it to the model (initial estimate)
-        domain for the final part of the computation, which is the evaluation 
-        of the optimal estimate, qhat.
+        ter solution because we need to map it to the model (prior) domain for 
+        the final part of the computation, which is the evaluation of the 
+        optimal estimate, qhat.
     */
 
-    
-    /* Declare the variables to checkpoint and restart the representers here for public visibility*/
-    char rep_restart_files[iframes][BUFSIZ];
-    char rep_partition_files[iframes][BUFSIZ];
-
-
-    for (int j = 0; j < m; j++)
+    /* ------------- 2. Adjoint and representer, per observation ------------ */
+    for (int j = 0; j < mdata; j++)
     {
+        /* Observation obs_id = j + 1 (1-based, as in the ini file and the
+           Fortran): its adjoint is adjoint_glob[j], run in adjoint<j>/, and
+           its representer is representer_glob[j], run in forward<j>/. */
         int obs_id = j + 1;
         SET_OBSERVATION_INDEX(&obs_id);
 
-        /* Create separate directory for each representer's checkpoints */
         char rep_dir[BUFSIZ];
         snprintf(rep_dir, sizeof(rep_dir), "forward%d", j);
-        mkdir(rep_dir, 0755);
+        make_dir(rep_dir);
 
         char adj_dir[BUFSIZ];
         snprintf(adj_dir, sizeof(adj_dir), "adjoint%d", j);
-        mkdir(adj_dir, 0755);
-
-
-        /* Remove stale checkpoint files before writing new ones */
-        char cmd[4*BUFSIZ];
-        snprintf(cmd, sizeof(cmd), "rm -f %s/fort.* %s/fort_frame_*.checkpoint %s/fort_frame_*.partition", adj_dir, adj_dir, adj_dir);
-        system(cmd);
-        snprintf(cmd, sizeof(cmd), "rm -f %s/fort.* %s/fort_frame_*.checkpoint %s/fort_frame_*.partition", rep_dir, rep_dir, rep_dir);
-        system(cmd);
-
-        /* Remove stale fort files in current directory*/
-        system("rm -f fort.* ");
+        make_dir(adj_dir);
 
         /* Adjoint options :  */
         fclaw_options_t *fclaw_opt_adjoint = fclaw_get_options(adjoint_glob[j]);
@@ -323,336 +430,301 @@ void run_program(fclaw_global_t *model_glob,\
         p.glob = adjoint_glob[j];
         p.adjoint_domain = adjoint_glob[j]->domain;
 
-        u1.init_flag = 1;  
+        u1.init_flag = 1;
         u1.meta = &p;
-        u1.geo = adjoint_geo;
-
-
+        u1.geo = geo;
 
         /* Run adjoint once and generate all N+1 restart files */
         fclaw_global_essentialf("-----------------------------------------\n");
-        fclaw_global_essentialf("========= Running adjoint simulation =========\n");
+        fclaw_global_essentialf("========= Running adjoint simulation: observation %d "
+                                "(adjoint%d) =========\n", obs_id, j);
         fclaw_global_essentialf("-----------------------------------------\n");
-        
-        /* 
-            When we call fclaw_run(adjoint_glob), ten (10) restart files (from 1 to 10) are generated. 
-            However, since Output frame 0 corresponds to restart file 0, we need to get it as well. We 
-            can get it by making a call to fclaw_output_checkpoint(adjoint_glob, 0). The catch is that 
-            after reinitializing restart file 0, we need to save the context in order to step to the 
-            time left for the forward (representer) run to proceed to Tfinal and the adjoint to get to 
-            0 from the remaining timestep. 
+
+        /*
+            Adjoint checkpoints for frames 0..nout. When we call fclaw_run, we get frames 
+            1..nout, and each one stores fclaw_run's context (frame number n, time t_curr, ...), 
+            so restarting from frame k resumes fclaw_run at tau_k.  Since output frame 0 
+            corresponds to restart file 0, we need it as well. We write it with 
+            fclaw_output_checkpoint(adjoint_glob, 0). It is used in the last interval of 
+            the representer run, t in (T - dT, T], where the adjoint restarts from frame 0 
+            and steps through the time left, tau = T - t.  The catch is that frame 0 is written
+            before fclaw_run has created a context, so we get and save an empty one first; 
+            restarting from frame 0, fclaw_run then finds no stored values and starts from 
+            n = 0, tau = 0.
         */
-        
+
         fclaw_context_t *ctx = fclaw_context_get(adjoint_glob[j], "fclaw_run_outstyle1_ctx");
 
         fclaw_context_save(ctx);
-        
-        //chdir("adjoint");
-        chdir(adj_dir);
+
+        change_dir(adj_dir);
         fclaw_output_checkpoint(adjoint_glob[j], 0); /*checkpoint 0 */
         fclaw_run(adjoint_glob[j]);
-        //fclaw_output_checkpoint(adjoint_glob[j], fclaw_opt_adjoint->nout);
-        fclaw_global_essentialf("============ Starting representer simulation from adjoint checkpoints =========== \n");
-        chdir("..");
-
-        /* Subsequent calls to the adjoint problem should not do any checkpointing or output */
-        fclaw_opt_adjoint->nout = 1;
-        fclaw_opt_adjoint->checkpoint = 0;
+        fclaw_global_essentialf("============ Starting representer simulation: observation %d "
+                                "(forward%d), from adjoint%d checkpoints ===========\n",
+                                obs_id, j, j);
+        change_dir("..");
 
         /* Representer options*/
         fclaw_options_t *fclaw_opt = fclaw_get_options(representer_glob[j]);
 
         int nout = fclaw_opt->nout;
         double tfinal = fclaw_opt->tfinal;
-       
+
+        /* The adjoint is restarted from its output frames, so they must be
+           the representer's output frames: same tfinal and nout. */
+        if (fclaw_opt_adjoint->nout != nout ||
+            fabs(fclaw_opt_adjoint->tfinal - tfinal) > 1e-12*tfinal)
+        {
+            fclaw_global_essentialf("adjoint_forward : the adjoint and the representer "
+                                    "need the same tfinal and nout\n");
+            exit(1);
+        }
+
+        /* Frame spacing of the adjoint, tau_k = k*dT. It uses the representer's tfinal
+           and nout, which stay fixed. Those of the adjoint are overwritten by each
+           re-advance below. 
+        */
+        const double dT = tfinal/nout;
+
+        /* Re-advances of the adjoint write no checkpoints and no output (the
+           adjoint frames from the full run above must not be overwritten). */
+        fclaw_opt_adjoint->checkpoint = 0;
+        fclaw_opt_adjoint->output = 0;
+
         int n_curr = 0;
-        
 
         /* We are setting the source term to 1 because we need it to solve for the representer*/
         fc2d_clawpack46_options_t *src_opt = fc2d_clawpack46_get_options(representer_glob[j]);
         src_opt->src_term = 1;
 
+        /* t = 0 : the representer starts from alpha at tau = T (frame nout) */
+        fclaw_global_essentialf("-----------------------------------------\n");
+        fclaw_global_essentialf("Observation %d: restarting adjoint%d from checkpoint file "
+                                "fort_frame_%04d.checkpoint\n", obs_id, j, nout);
+        fclaw_global_essentialf("-----------------------------------------\n");
 
+        reinitialize(adjoint_glob[j], adj_dir, nout);
+        map_adjoint_to_representer(adjoint_glob[j], representer_glob[j], &c[j], geo, &u1);
+        u1.init_flag = 0;
+
+        /* One representer step at a time.  After each step, alpha is brought
+           to tau = T - t: restart the adjoint from the frame just below tau
+           and advance it to tau. 
+        */
         while (n_curr < nout)
         {
-            int restart_iframe;
+            /* Take one step of representer problem */
+            printf(">>>            observation %d, representer %d: t = %12.4f\n",
+                   obs_id, j, representer_glob[j]->curr_time);
 
-            if (u1.init_flag == 1)
+            /* Change into forward directory to store restart files there*/
+            change_dir(rep_dir);
+            fclaw_opt->checkpoint = 1;
+
+            int n_new = user_run(representer_glob[j]);
+
+            change_dir("..");
+            fclaw_opt->checkpoint = 0;
+
+            n_curr = n_new;
+            if (n_new == nout)
             {
-                restart_iframe = nout; 
-            }
-            else
-            {
-                restart_iframe = nout - n_curr - 1;
-            }
-
-            char restart_file[BUFSIZ];
-            char partition_file[BUFSIZ];
-            snprintf(restart_file, BUFSIZ, "fort_frame_%04d.checkpoint", restart_iframe);
-            snprintf(partition_file, BUFSIZ, "fort_frame_%04d.partition", restart_iframe);
-
-            fclaw_global_essentialf("-----------------------------------------\n");
-            fclaw_global_essentialf("Restarting from checkpoint file %s\n", restart_file);
-            fclaw_global_essentialf("-----------------------------------------\n");
-
-            /* Reinitialize adjoint*/
-            //chdir("adjoint");
-            chdir(adj_dir);
-            
-            fclaw_reinitialize_from_file(adjoint_glob[j], restart_file, partition_file);
-            chdir("..");
-
-            /*setup overlap infomation*/
-            setup_overlap(representer_glob[j], adjoint_glob[j],&c[j], adjoint_geo);
-            
-            if (u1.init_flag == 1)
-            {
-                /* Map adjoint solution to the representer domain using overlap mechanism */
-                fclaw_overlap_exchange(adjoint_glob[j]->domain, c[j].query_points,
-                                    overlap_interpolate_patch, &u1);
-                u1.init_flag = 0;
-                continue;
+                /* user_run wrote the final frame and took no step */
+                break;
             }
 
-            /* Checkpoint and restart files for representers*/
+            /* user_run returned n_new. The representer is now in the output 
+               interval: t in (t_n, t_{n+1}] with n = n_new. Reversing time, 
+               tau = T - t lies in [tau_k, tau_{k+1}) with k = nout - n_new - 1. 
+               So frame k is the last adjoint checkpoint at or before tau. 
+               E.g. T = 2, nout = 20: t = 0.437 gives n_new = 4, tau = 1.563
+               and k = 15 (tau_15 = 1.5). 
+            */
+            double tau = tfinal - representer_glob[j]->curr_time;
+            int    k   = nout - n_new - 1;
 
-            for(int i = 0; i < iframes; i++)
-            {
-                snprintf(rep_restart_files[i], BUFSIZ, "fort_frame_%04d.checkpoint", i);
-                snprintf(rep_partition_files[i], BUFSIZ, "fort_frame_%04d.partition", i);
-            }
+            reinitialize(adjoint_glob[j], adj_dir, k);
 
-            // Exit after one step
-            int notdone = 1;
-            while (notdone)
-            {
-                // Take one step of representer problem
-                printf(">>>            representer run: t = %12.4f\n", representer_glob[j]->curr_time);
+            /* fclaw_run loops while n < nout, with each outer step having length 
+               dt_outer = tfinal/nout. With nout = k+1 and tfinal = (k+1)*(tau - tau_k) 
+               it runs one interval, from tau_k exactly to tau. 
+            */
+            fclaw_opt_adjoint->nout   = k + 1;
+            fclaw_opt_adjoint->tfinal = (k + 1)*(tau - k*dT);
+            fclaw_run(adjoint_glob[j]);
+            printf(">>>            observation %d, adjoint %d: frame %d -> tau = %12.4f (target %12.4f)\n",
+                   obs_id, j, k, adjoint_glob[j]->curr_time, tau);
 
-                /* Change into forward directory to store restart files there*/
-                //chdir("forward");
-                chdir(rep_dir);
-
-                fclaw_opt->checkpoint = 1;
-
-                int n_new = user_run(representer_glob[j]);
-                
-                chdir("..");
-
-                fclaw_opt->checkpoint = 0;
-
-                double t_curr_representer = representer_glob[j]->curr_time;
-
-                //chdir("adjoint");
-                chdir(adj_dir);
-                fclaw_reinitialize_from_file(adjoint_glob[j], restart_file, partition_file);
-                chdir("..");
-
-                setup_overlap(representer_glob[j], adjoint_glob[j],&c[j], adjoint_geo);
-
-                fclaw_opt_adjoint->tfinal = tfinal - t_curr_representer;
-                printf(">>>            ADJOINT run: tfinal set to %12.4f\n", fclaw_opt_adjoint->tfinal);
-                fclaw_run(adjoint_glob[j]);
-
-
-                /* Map adjoint solution to the representer domain using overlap mechanism */
-                fclaw_overlap_exchange(adjoint_glob[j]->domain, c[j].query_points,
-                                       overlap_interpolate_patch, &u1);
-
-                if (n_new > n_curr)
-                {
-                    n_curr = n_new;
-                    notdone = 0;
-                }
-            }
+            /* After the advance, map adjoint to representer */
+            map_adjoint_to_representer(adjoint_glob[j], representer_glob[j], &c[j], geo, &u1);
         }
     }
 
+    /* ---------------------- 3. Coefficients beta ------------------------- */
+    double *beta = new double[mdata];
+    int have_beta = 0;
 #ifdef INSTANTANEOUS_VERIFICATION_ONLY
     fclaw_global_essentialf("Instantaneous verification complete; "
                             "skipping the coefficient-system solve.\n");
-    for (int j = 0; j < m; j++)
+#else
+    /* Observations: dm, W_eps (the same in every adjoint glob) */
+    have_beta = compute_beta(model_glob, representer_glob,
+                             adjoint_get_options(adjoint_glob[0]), mdata, beta);
+    if (!have_beta)
+    {
+        fclaw_global_essentialf("No gauges (output-gauges = F or none in gauges.data): "
+                                "skipping the coefficient solve and q_hat.\n");
+    }
+#endif
+
+    /* ------------- 4. Optimal estimate q_hat = q_F + sum beta_j r_j --------- */
+    if (have_beta)
+    {
+        const int nout = fclaw_get_options(model_glob)->nout;
+        for (int iframe = 0; iframe <= nout; iframe++)
+        {
+            /* Load checkpoint iframe of the model: prior q_F */
+            fclaw_global_essentialf("-----------------------------------------\n");
+            fclaw_global_essentialf("Restarting model from checkpoint file "
+                                    "fort_frame_%04d.checkpoint\n", iframe);
+            fclaw_global_essentialf("-----------------------------------------\n");
+            reinitialize(model_glob, "model", iframe);
+
+            for (int j = 0; j < mdata; j++)
+            {
+                int obs_id = j + 1;
+                SET_OBSERVATION_INDEX(&obs_id);
+
+                /* Load checkpoint iframe of the representer */
+                char rep_dir[BUFSIZ];
+                snprintf(rep_dir, sizeof(rep_dir), "forward%d", j);
+                fclaw_global_essentialf("-----------------------------------------\n");
+                fclaw_global_essentialf("Observation %d: restarting representer %d from "
+                                        "checkpoint file fort_frame_%04d.checkpoint\n",
+                                        obs_id, j, iframe);
+                fclaw_global_essentialf("-----------------------------------------\n");
+                reinitialize(representer_glob[j], rep_dir, iframe);
+
+                map_representer_to_model(representer_glob[j], model_glob, &c[j], geo, j, beta);
+            }
+            /* Call output frame on updated model (model_q, that is, q_hat)*/
+            fclaw_output_frame (model_glob, iframe);
+        }
+    }
+
+    delete[] beta;
+
+    /* Finalize solvers */
+    for (int j = 0; j < mdata; j++)
     {
         adjoint_finalize(adjoint_glob[j]);
         forward_finalize(representer_glob[j]);
     }
     model_finalize(model_glob);
-    return;
-#endif
-    
-    /*Calculate beta using gauge value from model (initial estimate) and representer*/
+}
 
-    double *qF_gauge = new double[m];
-    double *h  = new double[m];
-    double *A  = new double[m*m];
+/* ----------------------------- Globs -----------------------------------------
 
-    /* 1. Get Forward model (background trajectory) at all observation locations */
-    printf("Calling get_gauges for model\n");
-    get_gauges(model_glob, qF_gauge);
-        
+   The three kinds of run are separate solvers, each with its own user
+   options, domain and initialization:
 
-    /* 2. Build h = d - qF */
-    for (int i = 0; i < m; i++)
+       model       : model_options_t,   forward_create_domain
+       adjoint     : adjoint_options_t, adjoint_create_domain
+       representer : forward_options_t, forward_create_domain
+
+   Registering a section returns one struct per section name.  If every
+   adjoint (or representer) glob stored that struct, a change to one glob's
+   options (e.g. nout, checkpoint) would change them all.  So each glob gets
+   its own copy of the options read from the ini file (the *_parsed structs),
+   and delete_glob frees the copies after destroying the glob. */
+
+typedef enum
+{
+    RUN_MODEL,
+    RUN_ADJOINT,
+    RUN_REPRESENTER
+} run_role_t;
+
+/* A glob with its own copies of the parsed options */
+static
+fclaw_global_t* new_glob(fclaw_app_t *app,
+                         fclaw_options_t *fclaw_parsed,
+                         fclaw_clawpatch_options_t *clawpatch_parsed,
+                         fc2d_clawpack46_options_t *claw46_parsed,
+                         void *user_parsed,
+                         run_role_t role)
+{
+    fclaw_options_t *fclaw_opt = new fclaw_options_t;
+    memcpy(fclaw_opt, fclaw_parsed, sizeof(fclaw_options_t));
+
+    fclaw_clawpatch_options_t *clawpatch_opt = new fclaw_clawpatch_options_t;
+    memcpy(clawpatch_opt, clawpatch_parsed, sizeof(fclaw_clawpatch_options_t));
+
+    fc2d_clawpack46_options_t *claw46_opt = new fc2d_clawpack46_options_t;
+    memcpy(claw46_opt, claw46_parsed, sizeof(fc2d_clawpack46_options_t));
+
+    fclaw_global_t *glob = fclaw_global_new(app);
+    fclaw_options_store           (glob, fclaw_opt);
+    fclaw_clawpatch_options_store (glob, clawpatch_opt);
+    fc2d_clawpack46_options_store (glob, claw46_opt);
+
+    switch (role)
     {
-        const adjoint_options_t *adj_opt = adjoint_get_options(adjoint_glob[0]);
-        h[i] = adj_opt->dm[i] - qF_gauge[i];
-    }
-
-    /* 3. Build representer matrix */
-    for (int j = 0; j < m; j++)
+    case RUN_MODEL:
     {
-
-        double *Rj = new double[m];
-
-        printf("Calling get_gauges for representer j = %d\n", j);
-        get_gauges(representer_glob[j], Rj);
-
-        for (int i = 0; i < m; i++)
-        {
-            A[i + j*m] = Rj[i];
-        }
-
-        delete[] Rj;
+        model_options_t *user_opt = new model_options_t;
+        memcpy(user_opt, user_parsed, sizeof(model_options_t));
+        model_options_store(glob, user_opt);
+        forward_create_domain(glob);
+        break;
     }
-
-
-    /* --- Representer-matrix symmetry: forward/adjoint consistency check --- 
-        We have a small asymmetry*/ 
-    double rmax = 0.0, asym = 0.0;
-    for (int i = 0; i < m; i++)
-        for (int j = 0; j < m; j++)
-        {
-            double aij = A[i + j*m], aji = A[j + i*m];
-            if (fabs(aij)       > rmax) rmax = fabs(aij);
-            if (fabs(aij - aji) > asym) asym = fabs(aij - aji);
-        }
-    printf("Representer matrix: max|R_ij - R_ji| = %.3e, "
-           "relative asymmetry = %.3e\n", asym, asym / rmax);
-
-    double fro_diff = 0.0, fro_R = 0.0;
-    for (int i = 0; i < m; i++)
-        for (int j = 0; j < m; j++)
-        {
-            double aij = A[i + j*m], aji = A[j + i*m];
-            fro_diff += (aij - aji) * (aij - aji);
-            fro_R    += aij * aij;
-        }
-    printf("frobenius norm: Representer matrix: ||R - R^T||_F / ||R||_F = %.3e\n",
-           sqrt(fro_diff) / sqrt(fro_R));
-    /* --------------------------------------------------------------------- */
-    /* We remove the asymmetry here*/
-    
-    for (int i = 0; i < m; i++)
-    for (int j = i + 1; j < m; j++)
+    case RUN_ADJOINT:
     {
-        double avg = 0.5 * (A[i + j*m] + A[j + i*m]);
-        A[i + j*m] = avg;
-        A[j + i*m] = avg;
+        adjoint_options_t *user_opt = new adjoint_options_t;
+        memcpy(user_opt, user_parsed, sizeof(adjoint_options_t));
+        adjoint_options_store(glob, user_opt);
+        adjoint_create_domain(glob);
+        break;
     }
-
-
-    /* 4. Add W^{-1} to diagonal */
-    const adjoint_options_t *adj_opt = adjoint_get_options(adjoint_glob[0]);
-    for (int i = 0; i < m; i++)
+    case RUN_REPRESENTER:
     {
-        A[i + i*m] += 1.0 / adj_opt->W_eps[i];
+        forward_options_t *user_opt = new forward_options_t;
+        memcpy(user_opt, user_parsed, sizeof(forward_options_t));
+        forward_options_store(glob, user_opt);
+        forward_create_domain(glob);
+        break;
     }
+    }
+    return glob;
+}
 
-    /* Solve (R + W^-1)β = h using dgesv solver */
-
-    int n    = m;
-    int nrhs = 1;
-    int lda  = m;
-    int ldb  = m;
-    int info;
-
-    int *ipiv = new int[m];
-
-    dgesv_(&n, &nrhs, A, &lda, ipiv, h, &ldb, &info);
-
-    /* Save beta separately so h can be freed */
-    double *beta = new double[m];
-    if (info == 0)
+/* Destroy a glob made by new_glob and free its option copies */
+static
+void delete_glob(fclaw_global_t *glob, run_role_t role)
+{
+    fclaw_options_t           *fclaw_opt     = fclaw_get_options(glob);
+    fclaw_clawpatch_options_t *clawpatch_opt = fclaw_clawpatch_get_options(glob);
+    fc2d_clawpack46_options_t *claw46_opt    = fc2d_clawpack46_get_options(glob);
+    const void *user_opt = NULL;
+    switch (role)
     {
-        for (int i = 0; i < m; i++)
-        {
-            beta[i] = h[i];
-            printf("beta[%d] = %24.16e\n", i, beta[i]);
-        }
+    case RUN_MODEL:       user_opt = model_get_options(glob);   break;
+    case RUN_ADJOINT:     user_opt = adjoint_get_options(glob); break;
+    case RUN_REPRESENTER: user_opt = forward_get_options(glob); break;
     }
-    else
+
+    fclaw_global_destroy(glob);
+
+    delete fclaw_opt;
+    delete clawpatch_opt;
+    delete claw46_opt;
+    switch (role)
     {
-        printf("dgesv failed; info = %d\n", info);
+    case RUN_MODEL:       delete (model_options_t*)   user_opt; break;
+    case RUN_ADJOINT:     delete (adjoint_options_t*) user_opt; break;
+    case RUN_REPRESENTER: delete (forward_options_t*) user_opt; break;
     }
-
-        
-        /* Map representer solution to model domain */
-        /*For n goes from 0 to nout, load checkpoint files from model glob and representer glob*/
-    #if 1
-        
-    
-    //fclaw_options_t *fclaw_opt = fclaw_get_options(representer_glob[j]);
-    int nout = fclaw_opt_model->nout;
-
-    
-
-    for (int iframe=0; iframe<=nout; iframe++)
-    {
-
-        /* Load checkpoint n from model glob get initial estimate q_F */
-        chdir("model");
-        fclaw_global_essentialf("-----------------------------------------\n");
-        fclaw_global_essentialf("Restarting model from checkpoint file %s\n", model_restart_files[iframe]);
-        fclaw_global_essentialf("-----------------------------------------\n");
-
-        fclaw_reinitialize_from_file(model_glob, model_restart_files[iframe], model_partition_files[iframe]);
-        chdir("..");
-
-        for (int j = 0; j < m; j++)
-        {
-            int obs_id = j + 1;
-            SET_OBSERVATION_INDEX(&obs_id);
-
-
-            /* Load checkpoint n from representer (representer glob)*/
-            //chdir("forward");
-            char rep_dir[BUFSIZ];
-            snprintf(rep_dir, sizeof(rep_dir), "forward%d", j);
-            chdir(rep_dir);
-            fclaw_global_essentialf("-----------------------------------------\n");
-            fclaw_global_essentialf("Restarting representer from checkpoint file %s\n", rep_restart_files[iframe]);
-            fclaw_global_essentialf("-----------------------------------------\n");
-
-            fclaw_reinitialize_from_file(representer_glob[j], rep_restart_files[iframe], rep_partition_files[iframe]);
-            chdir("..");
-
-            setup_overlap_qhat_update(model_glob, representer_glob[j],&c[j], adjoint_geo);
-
-            overlap_patch_user_t u2;
-            u2.meta = &c[j];
-            u2.geo = adjoint_geo;
-            u2.rep_idx = j;
-            u2.beta = beta;
-
-            /* Map representer solution to the model (initial estimate) domain using overlap mechanism */
-            fclaw_overlap_exchange(representer_glob[j]->domain, c[j].query_points,
-                                   overlap_interpolate_rep_to_initial_estimate, &u2);
-        }
-        /* Call output frame on updated model (model_q, that is, q_hat)*/
-        fclaw_output_frame (model_glob, iframe);
-    
-    }
-#endif
-
-        /* Finalize solvers */
-    for (int j = 0; j < m; j++)
-    {    
-        adjoint_finalize(adjoint_glob[j]);
-        
-        forward_finalize(representer_glob[j]); 
-    }
-    model_finalize(model_glob);
-          
 }
 
 
@@ -667,40 +739,36 @@ main (int argc, char **argv)
     fclaw_app_options_register_core(app, "forward_options.ini"); 
 
     /* Register once to read from ini file */
-    fclaw_options_t *adjoint_fclaw_opt_base =
+    fclaw_options_t *adjoint_fclaw_opt_parsed =
         fclaw_options_register(app, "adjoint", "adjoint_options.ini");
-    fclaw_clawpatch_options_t *adjoint_clawpatch_opt_base =
+    fclaw_clawpatch_options_t *adjoint_clawpatch_opt_parsed =
         fclaw_clawpatch_2d_options_register(app, "adjoint-clawpatch", "adjoint_options.ini");
-    fc2d_clawpack46_options_t *adjoint_claw46_opt_base =
+    fc2d_clawpack46_options_t *adjoint_claw46_opt_parsed =
         fc2d_clawpack46_options_register(app, "adjoint-clawpack46", "adjoint_options.ini");
-    adjoint_options_t *adjoint_user_opt_base =
+    adjoint_options_t *adjoint_user_opt_parsed =
         adjoint_options_register(app, "adjoint_options.ini");
 
     /* representer options - register once to read from ini file */
-    fclaw_options_t           *representer_fclaw_opt_base =
+    fclaw_options_t           *representer_fclaw_opt_parsed =
         fclaw_options_register(app, "forward", "forward_options.ini");
-    fclaw_clawpatch_options_t *representer_clawpatch_opt_base =
+    fclaw_clawpatch_options_t *representer_clawpatch_opt_parsed =
         fclaw_clawpatch_2d_options_register(app, "forward-clawpatch", "forward_options.ini");
-    fc2d_clawpack46_options_t *representer_claw46_opt_base =
+    fc2d_clawpack46_options_t *representer_claw46_opt_parsed =
         fc2d_clawpack46_options_register(app, "forward-clawpack46", "forward_options.ini");
-    forward_options_t         *representer_user_opt_base =
+    forward_options_t         *representer_user_opt_parsed =
         forward_options_register(app, "forward_options.ini");
 
     
 
-    /* model (initial estimate) options */
-    model_options_t             *model_user_opt;
-    fclaw_options_t             *model_fclaw_opt;
-    fclaw_clawpatch_options_t *model_clawpatch_opt;
-    fc2d_clawpack46_options_t   *model_claw46_opt;
-
-    model_fclaw_opt =                   
-        fclaw_options_register(app, "model","model_options.ini");
-    model_clawpatch_opt =   
+    /* model (prior) options - register once to read from ini file */
+    fclaw_options_t           *model_fclaw_opt_parsed =
+        fclaw_options_register(app, "model", "model_options.ini");
+    fclaw_clawpatch_options_t *model_clawpatch_opt_parsed =
         fclaw_clawpatch_2d_options_register(app, "model-clawpatch", "model_options.ini");
-    model_claw46_opt =        
-        fc2d_clawpack46_options_register(app, "model-clawpack46","model_options.ini");
-    model_user_opt = model_options_register(app, "model_options.ini");  
+    fc2d_clawpack46_options_t *model_claw46_opt_parsed =
+        fc2d_clawpack46_options_register(app, "model-clawpack46", "model_options.ini");
+    model_options_t           *model_user_opt_parsed =
+        model_options_register(app, "model_options.ini");
 
 
 
@@ -712,102 +780,36 @@ main (int argc, char **argv)
     if (!vexit)
     {
         /* Options have been checked and are valid */
-        //int size, rank;
-        m = adjoint_user_opt_base->mdata;
+        const int mdata = adjoint_user_opt_parsed->mdata;   /* number of observations */
 
-        /* Copy options for each j so they have independent memory */
-
-        /*
-        When registering options with the same section name, fclaw_options_register
-        returns the same pointer for all j, causing shared state between globs.
-        Modifications to one glob's options (e.g. nout=1, checkpoint=0) were
-        inadvertently affecting all other globs, causing missing checkpoint files
-        and crashes for mdata > 2.
-
-        Fix by registering options once to correctly read from the ini file, then
-        memcpy-ing independent copies for each j so that per-glob modifications
-        are isolated.
-        */
-        fclaw_options_t           *adjoint_fclaw_opt[m];
-        fclaw_clawpatch_options_t *adjoint_clawpatch_opt[m];
-        fc2d_clawpack46_options_t *adjoint_claw46_opt[m];
-        adjoint_options_t         *adjoint_user_opt[m];
-
-        for (int j = 0; j < m; j++)
+        /* One adjoint and one representer per observation, and the model */
+        fclaw_global_t **adjoint_glob = new fclaw_global_t*[mdata];
+        for (int j = 0; j < mdata; j++)
         {
-            adjoint_fclaw_opt[j]     = new fclaw_options_t;
-            adjoint_clawpatch_opt[j] = new fclaw_clawpatch_options_t;
-            adjoint_claw46_opt[j]    = new fc2d_clawpack46_options_t;
-            adjoint_user_opt[j]      = new adjoint_options_t;
-
-            memcpy(adjoint_fclaw_opt[j],     adjoint_fclaw_opt_base,     sizeof(fclaw_options_t));
-            memcpy(adjoint_clawpatch_opt[j], adjoint_clawpatch_opt_base, sizeof(fclaw_clawpatch_options_t));
-            memcpy(adjoint_claw46_opt[j],    adjoint_claw46_opt_base,    sizeof(fc2d_clawpack46_options_t));
-            memcpy(adjoint_user_opt[j],      adjoint_user_opt_base,      sizeof(adjoint_options_t));
+            adjoint_glob[j] = new_glob(app, adjoint_fclaw_opt_parsed,
+                                       adjoint_clawpatch_opt_parsed,
+                                       adjoint_claw46_opt_parsed,
+                                       adjoint_user_opt_parsed, RUN_ADJOINT);
         }
 
-        
-        fclaw_global_t **adjoint_glob = new fclaw_global_t*[m];
-
-        for (int j = 0; j < m; j++)
+        fclaw_global_t **representer_glob = new fclaw_global_t*[mdata];
+        for (int j = 0; j < mdata; j++)
         {
-            adjoint_glob[j] = fclaw_global_new(app);
-
-            fclaw_options_store            (adjoint_glob[j], adjoint_fclaw_opt[j]);
-            fclaw_clawpatch_options_store  (adjoint_glob[j], adjoint_clawpatch_opt[j]);
-            fc2d_clawpack46_options_store    (adjoint_glob[j], adjoint_claw46_opt[j]);
-            adjoint_options_store           (adjoint_glob[j], adjoint_user_opt[j]);
-
-            adjoint_create_domain(adjoint_glob[j]);
+            representer_glob[j] = new_glob(app, representer_fclaw_opt_parsed,
+                                           representer_clawpatch_opt_parsed,
+                                           representer_claw46_opt_parsed,
+                                           representer_user_opt_parsed,
+                                           RUN_REPRESENTER);
         }
 
-        /* Copy representer options for each j */
-        fclaw_options_t           *representer_fclaw_opt[m];
-        fclaw_clawpatch_options_t *representer_clawpatch_opt[m];
-        fc2d_clawpack46_options_t *representer_claw46_opt[m];
-        forward_options_t         *representer_user_opt[m];
-
-        for (int j = 0; j < m; j++)
-        {
-            representer_fclaw_opt[j]     = new fclaw_options_t;
-            representer_clawpatch_opt[j] = new fclaw_clawpatch_options_t;
-            representer_claw46_opt[j]    = new fc2d_clawpack46_options_t;
-            representer_user_opt[j]      = new forward_options_t;
-
-            memcpy(representer_fclaw_opt[j],     representer_fclaw_opt_base,     sizeof(fclaw_options_t));
-            memcpy(representer_clawpatch_opt[j], representer_clawpatch_opt_base, sizeof(fclaw_clawpatch_options_t));
-            memcpy(representer_claw46_opt[j],    representer_claw46_opt_base,    sizeof(fc2d_clawpack46_options_t));
-            memcpy(representer_user_opt[j],      representer_user_opt_base,      sizeof(forward_options_t));
-        }
-
-        /* representer setup */
-        fclaw_global_t **representer_glob = new fclaw_global_t*[m];
-        for (int j = 0; j < m; j++)
-        {
-            representer_glob[j] = fclaw_global_new(app);
-
-            fclaw_options_store           (representer_glob[j], representer_fclaw_opt[j]);
-            fclaw_clawpatch_options_store (representer_glob[j], representer_clawpatch_opt[j]);
-            fc2d_clawpack46_options_store   (representer_glob[j], representer_claw46_opt[j]);
-            forward_options_store           (representer_glob[j], representer_user_opt[j]);
-
-            forward_create_domain(representer_glob[j]);
-        }
-        
-        /* Create model glob*/
-        fclaw_global_t *model_glob = fclaw_global_new(app);
-
-        fclaw_options_store           (model_glob, model_fclaw_opt);
-        fclaw_clawpatch_options_store (model_glob, model_clawpatch_opt);
-        fc2d_clawpack46_options_store   (model_glob, model_claw46_opt);
-        model_options_store           (model_glob,model_user_opt);
-
-        forward_create_domain(model_glob);
-
+        fclaw_global_t *model_glob = new_glob(app, model_fclaw_opt_parsed,
+                                              model_clawpatch_opt_parsed,
+                                              model_claw46_opt_parsed,
+                                              model_user_opt_parsed, RUN_MODEL);
 
         /* initialize all the solvers before doing overlap */
         
-        for (int j = 0; j < m; j++)
+        for (int j = 0; j < mdata; j++)
         {
             adjoint_initialize(adjoint_glob[j]);
             forward_initialize(representer_glob[j]); 
@@ -815,9 +817,9 @@ main (int argc, char **argv)
         model_initialize(model_glob); 
 
         /* Set up overlap points in "c" */
-        overlap_forward_metadata_t *c = new overlap_forward_metadata_t[m];
+        overlap_forward_metadata_t *c = new overlap_forward_metadata_t[mdata];
 
-        for (int j = 0; j < m; j++)
+        for (int j = 0; j < mdata; j++)
         {
             memset(&c[j], 0, sizeof(overlap_forward_metadata_t));
         }
@@ -827,18 +829,18 @@ main (int argc, char **argv)
 
         /* initialize the adjoint geometry information that is needed for
             * mapping between the representer and the adjoint domain */
-        for (int j = 0; j < m; j++)
+        for (int j = 0; j < mdata; j++)
         {
             setup_overlap(representer_glob[j], adjoint_glob[j],&c[j], adjoint_geo);
 
         }
         /* Run the program */
         run_program(model_glob,
-                    representer_glob, 
+                    representer_glob,
                     adjoint_glob,
-                    c,adjoint_geo);    
+                    c, adjoint_geo, mdata);
 
-        for (int j = 0; j < m; j++)
+        for (int j = 0; j < mdata; j++)
         {
             /* destroy overlap points */
             if (c[j].query_points != NULL)
@@ -846,28 +848,15 @@ main (int argc, char **argv)
                 sc_array_destroy(c[j].query_points);
                 c[j].query_points = NULL;
             }
-        }    
-
-        for (int j = 0; j < m; j++)
-        {
-            fclaw_global_destroy(adjoint_glob[j]);
-            fclaw_global_destroy(representer_glob[j]);
         }
-        fclaw_global_destroy(model_glob);
+        delete[] c;
 
-        /* Free copied options */
-        for (int j = 0; j < m; j++)
+        for (int j = 0; j < mdata; j++)
         {
-            delete adjoint_fclaw_opt[j];
-            delete adjoint_clawpatch_opt[j];
-            delete adjoint_claw46_opt[j];
-            delete adjoint_user_opt[j];
-
-            delete representer_fclaw_opt[j];
-            delete representer_clawpatch_opt[j];
-            delete representer_claw46_opt[j];
-            delete representer_user_opt[j];
+            delete_glob(adjoint_glob[j], RUN_ADJOINT);
+            delete_glob(representer_glob[j], RUN_REPRESENTER);
         }
+        delete_glob(model_glob, RUN_MODEL);
 
         delete[] adjoint_glob;
         delete[] representer_glob;
