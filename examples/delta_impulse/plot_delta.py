@@ -45,7 +45,7 @@ plt.rcParams.update({
     "axes.unicode_minus": False,
     "axes.formatter.use_mathtext": True,   # cmr10 wants mathtext for tick labels
 })
-XM, YM = 1.5, 1.0                     # the impulse location
+XM, YM = 1.5, 1.0                     # the impulse location (not drawn)
 
 FIG_W, FIG_H, DPI = 3.30, 3.03335, 300        # style_panel.m
 AX_POS = [0.165, 0.205, 0.610, 0.665]  # room for the x and y labels;
@@ -90,7 +90,10 @@ def to_uniform(patches, N):
     return Q
 
 
-def panel(patches, clim, label, t, out):
+def panel(patches, clim, label, t, out, tname="t"):
+    """tname is the clock in the title: "t" (physical) or r"\tau" (adjoint,
+    tau = T - t).  The file name always uses physical t, so alpha and r_m
+    panels of the same instant pair up."""
     N = int(round(LDOM / min(p["dx"] for p in patches)))
     Q = to_uniform(patches, N)
 
@@ -102,11 +105,10 @@ def panel(patches, clim, label, t, out):
         ax.add_patch(Rectangle((p["xlow"], p["ylow"]),
                                p["mx"] * p["dx"], p["my"] * p["dy"],
                                fill=False, edgecolor="k", linewidth=0.5))
-    ax.plot(XM, YM, "ko", ms=5.3, mfc="k", mec="k")   # 22 px, matching the paper panels
     ax.set_xlim(0, LDOM); ax.set_ylim(0, LDOM); ax.set_aspect("equal")
     ax.set_xticks([0, 1, 2]); ax.set_yticks([0, 1, 2])
     ax.set_xlabel("x", fontsize=FS); ax.set_ylabel("y", fontsize=FS)
-    ax.set_title(r"%s at $t = %.2f$" % (label, t), fontsize=FS)
+    ax.set_title(r"%s at $%s = %.2f$" % (label, tname, t), fontsize=FS)
     ax.tick_params(labelsize=FS)
 
     cax = fig.add_axes(CB_POS)
