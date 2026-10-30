@@ -172,6 +172,7 @@ if handoff_mass_error > 2.0e-2:
 if handoff_centroid_error > 2.0e-2:
     raise SystemExit("FAIL: handoff displaced the field")
 if refocus_error > 4.0e-2:
-    raise SystemExit("FAIL: representer did not refocus at the gauge")
+    raise SystemExit(f"FAIL: representer did not refocus at the observation "
+                     f"(distance {refocus_error:.3e} > 4.0e-02)")
 
 print("\noverall result            : PASS")
