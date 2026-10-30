@@ -18,24 +18,20 @@ gaugedata = fclaw_analysis.GaugeData(dim,min_time_increment=0)
 
 
 
-# The gauge location must not sit on a patch boundary. (1.5, 1.0) is a patch
-# corner at every refinement level. 1.5 and 1.0 are both exact multiples of the
-# patch width 2/2^L for every L and ForestClaw's point-location search then
-# fails to assign the gauge to any patch. The gauge records nothing and
-# get_gauges() aborts with "No gauge buffer available".
-#
-# None of the original three gauges hit this: (0.67, 1.0) is interior in x,
-# (0.80, 1.2) and (0.55, 1.2) are interior in both. This only appeared when the
-# impulse moved to a dyadic point.
-#
-# So offset the gauge by a non-dyadic amount. The delta source stays at the
-# (xm, ym) from the .ini. It is evaluated at cell centres and needs no
-# point location. 0.001 is 1% of sigma = 0.1414, far below anything that matters.
+# Offset the gauge from (xm, ym) = (1.5, 1.0). That point is a patch corner 
+# at every refinement level used here (2 and up). As a result, ForestClaw's 
+# point-location search assigns the gauge to no patch and it records nothing.
+# The original gauges, e.g. (0.67, 1.0), were not corners. The delta source
+# itself stays at the (xm, ym) from the .ini. It is evaluated at cell centres
+# and needs no point search. We choose EPS = 0.001, which is under 1% of the
+# kernel width sigma = 0.1414.
 EPS = 0.001
 
-# The window also ends at tm rather than being zero-width, because get_gauges()
-# reads gauge_buffer[kmax-1], the last sample. A window of [tm-dt, tm] gives it
-# several samples and makes the last one the sample closest to tm (at or before it).
+# Time window [tm - dt, tm], not zero-width as in adjoint_forward. With [tm, tm]
+# the gauge buffer was empty. The upper end misses the step at tm by round-off
+# (the clock reaches 1.5000000000000002), so the last sample is about one step
+# before tm and the model records none.  That's fine here: the delta_impulse
+# build never reads the gauges; the verification uses the output frames.
 dt = 0.02  # time window
 
 for i in range(mdata):
