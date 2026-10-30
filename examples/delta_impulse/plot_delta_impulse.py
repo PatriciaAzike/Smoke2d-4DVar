@@ -54,10 +54,11 @@ if vmin > -0.01*vmax:
 clim = (vmin, vmax)
 print("shared two-row scale [%.4g, %.4g]" % clim)
 
+# The adjoint runs on tau = T - t: title it with tau, name the file by t.
 for _, t_frame, patches in alpha:
     plotting.panel(
-        patches, clim, r"$\alpha_1$", t_frame,
-        "alpha_t%05.2f.png" % t_frame,
+        patches, clim, r"$\alpha_1$", args.tfinal - t_frame,
+        "alpha_t%05.2f.png" % t_frame, tname=r"\tau",
     )
 for _, t_frame, patches in representer:
     plotting.panel(
