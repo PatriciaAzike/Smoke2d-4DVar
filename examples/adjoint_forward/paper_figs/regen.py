@@ -66,8 +66,8 @@ JOBS = [
  ("2d_amr_0010_t01.00_lw",   "fort.q0010_amr_lw",      (-0.5,4.5), range(5), r"$\hat{q}$ at t = 1.00", G2D),
  ("uniform_0004_t00.40",     "fort.q0004_uniform",     (-0.5,4.5), range(5), r"$\hat{q}$ at t = 0.40", G2D),
  ("uniform_0010_t01.00",     "fort.q0010_uniform",     (-0.5,4.5), range(5), r"$\hat{q}$ at t = 1.00", G2D),
- ("model_amr_0004_t00.40_hw","fort.q0004_model_2d_hw", (-0.5,4.5), range(5), r"$q_F$ at t = 0.40",     G2D),
- ("model_amr_0010_t01.00_hw","fort.q0010_model_2d_hw", (-0.5,4.5), range(5), r"$q_F$ at t = 1.00",     G2D),
+ ("model_amr_0004_t00.40_hw","fort.q0004_model_2d_hw", (-0.5,4.5), range(5), r"$q_F$", G2D),
+ ("model_amr_0010_t01.00_hw","fort.q0010_model_2d_hw", (-0.5,4.5), range(5), r"$q_F$", G2D),
 ]
 
 
