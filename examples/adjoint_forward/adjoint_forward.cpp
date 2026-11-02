@@ -382,7 +382,9 @@ void run_program(fclaw_global_t *model_glob,
                  adjoint_geometry_t *geo,
                  int mdata)
 {
-    /* Optimal estimate written by an earlier run */
+    /* Remove stale q_hat frames (fort.q*, fort.t*) written by an earlier run before 
+       a new run starts
+    */
     if (system("rm -f fort.*") != 0)
     {
         fclaw_global_essentialf("adjoint_forward: could not remove old fort.* files\n");
@@ -476,9 +478,8 @@ void run_program(fclaw_global_t *model_glob,
         if (fclaw_opt_adjoint->nout != nout ||
             fabs(fclaw_opt_adjoint->tfinal - tfinal) > 1e-12*tfinal)
         {
-            fclaw_global_essentialf("adjoint_forward : the adjoint and the representer "
-                                    "need the same tfinal and nout\n");
-            exit(1);
+            fclaw_abortf("adjoint_forward : the adjoint and the representer "
+                        "need the same tfinal and nout\n");
         }
 
         /* Frame spacing of the adjoint, tau_k = k*dT. It uses the representer's tfinal
@@ -487,8 +488,7 @@ void run_program(fclaw_global_t *model_glob,
         */
         const double dT = tfinal/nout;
 
-        /* Re-advances of the adjoint write no checkpoints and no output (the
-           adjoint frames from the full run above must not be overwritten). */
+        /* Subsequent re-advances of the adjoint write no checkpoints and no output */
         fclaw_opt_adjoint->checkpoint = 0;
         fclaw_opt_adjoint->output = 0;
 
@@ -498,66 +498,80 @@ void run_program(fclaw_global_t *model_glob,
         fc2d_clawpack46_options_t *src_opt = fc2d_clawpack46_get_options(representer_glob[j]);
         src_opt->src_term = 1;
 
-        /* t = 0 : the representer starts from alpha at tau = T (frame nout) */
-        fclaw_global_essentialf("-----------------------------------------\n");
-        fclaw_global_essentialf("Observation %d: restarting adjoint%d from checkpoint file "
-                                "fort_frame_%04d.checkpoint\n", obs_id, j, nout);
-        fclaw_global_essentialf("-----------------------------------------\n");
-
-        reinitialize(adjoint_glob[j], adj_dir, nout);
-        map_adjoint_to_representer(adjoint_glob[j], representer_glob[j], &c[j], geo, &u1);
-        u1.init_flag = 0;
-
-        /* One representer step at a time.  After each step, alpha is brought
-           to tau = T - t: restart the adjoint from the frame just below tau
-           and advance it to tau. 
-        */
         while (n_curr < nout)
         {
-            /* Take one step of representer problem */
-            printf(">>>            observation %d, representer %d: t = %12.4f\n",
-                   obs_id, j, representer_glob[j]->curr_time);
-
-            /* Change into forward directory to store restart files there*/
-            change_dir(rep_dir);
-            fclaw_opt->checkpoint = 1;
-
-            int n_new = user_run(representer_glob[j]);
-
-            change_dir("..");
-            fclaw_opt->checkpoint = 0;
-
-            n_curr = n_new;
-            if (n_new == nout)
+            if (u1.init_flag == 1)
             {
-                /* user_run wrote the final frame and took no step */
-                break;
+                /* t = 0 : the representer starts from alpha at tau = T (frame nout) */
+                int restart_iframe = nout;
+                fclaw_global_essentialf("-----------------------------------------\n");
+                fclaw_global_essentialf("Observation %d: restarting adjoint%d from checkpoint file "
+                                        "fort_frame_%04d.checkpoint\n", obs_id, j, restart_iframe);
+                fclaw_global_essentialf("-----------------------------------------\n");
+
+                reinitialize(adjoint_glob[j], adj_dir, restart_iframe);
+                map_adjoint_to_representer(adjoint_glob[j], representer_glob[j], &c[j], geo, &u1);
+                u1.init_flag = 0;
+                continue;
             }
 
-            /* user_run returned n_new. The representer is now in the output 
-               interval: t in (t_n, t_{n+1}] with n = n_new. Reversing time, 
-               tau = T - t lies in [tau_k, tau_{k+1}) with k = nout - n_new - 1. 
-               So frame k is the last adjoint checkpoint at or before tau. 
-               E.g. T = 2, nout = 20: t = 0.437 gives n_new = 4, tau = 1.563
-               and k = 15 (tau_15 = 1.5). 
-            */
-            double tau = tfinal - representer_glob[j]->curr_time;
-            int    k   = nout - n_new - 1;
+            /* Step the representer through interval n_curr */
+            int notdone = 1;
+            while (notdone)
+            {
+                /* Take one step of representer problem */
+                printf(">>>            observation %d, representer %d: t = %12.4f\n",
+                       obs_id, j, representer_glob[j]->curr_time);
 
-            reinitialize(adjoint_glob[j], adj_dir, k);
+                /* Change into forward directory to store restart files there*/
+                change_dir(rep_dir);
+                fclaw_opt->checkpoint = 1;
 
-            /* fclaw_run loops while n < nout, with each outer step having length 
-               dt_outer = tfinal/nout. With nout = k+1 and tfinal = (k+1)*(tau - tau_k) 
-               it runs one interval, from tau_k exactly to tau. 
-            */
-            fclaw_opt_adjoint->nout   = k + 1;
-            fclaw_opt_adjoint->tfinal = (k + 1)*(tau - k*dT);
-            fclaw_run(adjoint_glob[j]);
-            printf(">>>            observation %d, adjoint %d: frame %d -> tau = %12.4f (target %12.4f)\n",
-                   obs_id, j, k, adjoint_glob[j]->curr_time, tau);
+                int n_new = user_run(representer_glob[j]);
 
-            /* After the advance, map adjoint to representer */
-            map_adjoint_to_representer(adjoint_glob[j], representer_glob[j], &c[j], geo, &u1);
+                change_dir("..");
+                fclaw_opt->checkpoint = 0;
+
+                if (n_new == nout)
+                {
+                    /* user_run wrote the final frame and took no step */
+                    n_curr = n_new;
+                    break;
+                }
+
+                /* The restart frame depends on where the representer is after this step.
+                   If the step crossed into the next interval, n_new is already that
+                   interval's index while n_curr is still the old one, so we use n_new.
+                   The representer is in the output interval t in (t_n, t_{n+1}]
+                   with n = n_new. Reversing time, tau = T - t lies in
+                   [tau_k, tau_{k+1}) with k = nout - n_new - 1, so frame k is the
+                   last adjoint checkpoint at or before tau.
+                */
+                double tau = tfinal - representer_glob[j]->curr_time;
+                int restart_iframe = nout - n_new - 1;
+
+                reinitialize(adjoint_glob[j], adj_dir, restart_iframe);
+
+                /* fclaw_run loops while n < nout, with each outer step having length
+                   dt_outer = tfinal/nout. With nout = k+1 and tfinal = (k+1)*(tau - tau_k)
+                   it runs one interval, from tau_k exactly to tau.
+                */
+                fclaw_opt_adjoint->nout   = restart_iframe + 1;
+                fclaw_opt_adjoint->tfinal = (restart_iframe + 1)*(tau - restart_iframe*dT);
+                fclaw_run(adjoint_glob[j]);
+                printf(">>>            observation %d, adjoint %d: frame %d -> tau = %12.4f (target %12.4f)\n",
+                       obs_id, j, restart_iframe, adjoint_glob[j]->curr_time, tau);
+
+                /* After the advance, map adjoint to representer */
+                map_adjoint_to_representer(adjoint_glob[j], representer_glob[j], &c[j], geo, &u1);
+
+                if (n_new > n_curr)
+                {
+                    /* The step crossed into the next output interval */
+                    n_curr = n_new;
+                    notdone = 0;
+                }
+            }
         }
     }
 
@@ -635,7 +649,7 @@ void run_program(fclaw_global_t *model_glob,
 
    Registering a section returns one struct per section name.  If every
    adjoint (or representer) glob stored that struct, a change to one glob's
-   options (e.g. nout, checkpoint) would change them all.  So each glob gets
+   options (e.g. nout, checkpoint) would change them all. So each glob gets
    its own copy of the options read from the ini file (the *_parsed structs),
    and delete_glob frees the copies after destroying the glob. */
 
