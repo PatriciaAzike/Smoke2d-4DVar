@@ -1,5 +1,5 @@
 function style_line_panel()
-%STYLE_LINE_PANEL  Geometry for wide line/scatter panels.
+%STYLE_LINE_PANEL:  Geometry for wide line/scatter panels.
 %
 % Companion to STYLE_PANEL.
 %

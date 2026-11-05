@@ -1,23 +1,13 @@
 function n = thin_scatter(h)
-%THIN_SCATTER  Collapse a ClawPack PlotType==4 scatter to its distinct points.
+% THIN_SCATTER: Collapse a ClawPack PlotType==4 scatter to its distinct points by
+% removing duplicate (x,q) positions to prevent a  "Busy" hang during export.
 %
-%   hclaw = findobj(gca, '-property', 'XData');   % capture BEFORE adding more
-%   ... plot q_F, the gauges, the legend ...
+% The duplicate objects are emptied without deleting handles, preserving legends.  
+% This also reduces export time without changing the plotted points
+%
+%   hclaw = findobj(gca, '-property', 'XData');   % capture handles adding overlays
 %   thin_scatter(hclaw);
-%
-% ClawPack draws one graphics object per AMR patch, so frame 4 of the pseudo-1D
-% run puts 188,416 markers on the axes. That run is constant in y, so only 416
-% of them are at distinct (x,q) positions; the other ~188,000 sit exactly on top
-% of each other. Painters still rasterizes every one, and with
-% ScatterStyle = {'*'} each marker is three line segments, so print at -r300 has
-% to emit on the order of 5e5 vector primitives. That is the "Busy" hang.
-%
-% This keeps the distinct points and blanks the duplicates, so the picture is
-% pixel-for-pixel identical and the export is instant. Objects are emptied,
-% never deleted, so the legend and any handle ClawPack is holding stay valid.
-%
-% Objects are grouped by colour and marker before thinning, so if ClawPack ever
-% colours refinement levels differently that distinction survives.
+
 
 n = 0;
 if nargin < 1 || isempty(h), return; end

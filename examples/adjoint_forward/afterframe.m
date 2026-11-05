@@ -1,14 +1,17 @@
-%parms = read_vars();
-%W = parms.W_eps;
+fid = fopen('adjoint/setprob.data');
+c = textscan(fid, '%f%*[^\n]');   % first number on each line; stops at the F
+fclose(fid);
+data = c{1};
+parms.W_eps = data(14);
 
-title(sprintf('$\\hat{q}$ at t = %.2f', t), 'Interpreter', 'latex')
+title(sprintf('$\\hat{q}$ at $W_{\\epsilon} = %g$', parms.W_eps), 'Interpreter', 'latex')
 %title(sprintf('$\\hat{q}$ at time %.2f', t), 'Interpreter', 'latex')
 
 pseudo_1d = false;
 
 pseudo_1d_data = 'Uhat_data.mat';
 plot_soln = false;
-plot_surf = true;
+plot_surf = false;
 plot_1d_data = false;
 
 
@@ -54,11 +57,19 @@ if PlotType ==1
 
     if ~pseudo_1d
         hdl = add_gauges();
-        set(hdl,'markersize',20);
+        set(hdl,'markersize',5);
         set(hdl,'color','k')
         ud = get(hdl,'Userdata');
         %set(ud{1},'string','');
-        %set(ud{2},'string','');     
+        %set(ud{2},'string','');    
+
+        % Fill each gauge with the colour of q_hat there (ForestClaw's gauge
+        % interpolation), on the same colormap and limits as the field
+        xg = arrayfun(@(h) get(h,'userdata').longitude, hdl);
+        yg = arrayfun(@(h) get(h,'userdata').latitude,  hdl);
+        gauge_values = get_gauge_values(amrdata, xg, yg, mq);
+        color_gauges(hdl, gauge_values);
+        fprintf('gauge values: %s\n', sprintf('%.4f ', gauge_values));
     end
 
    
