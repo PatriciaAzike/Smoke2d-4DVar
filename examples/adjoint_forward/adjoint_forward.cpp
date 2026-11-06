@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2012-2023 Carsten Burstedde, Donna Calhoun, Scott Aiton, Patricia Azike
+Copyright (c) 2012-2026 Carsten Burstedde, Donna Calhoun, Scott Aiton, Patricia Azike
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -100,10 +100,11 @@ void make_dir(const char *dir)
 {
     mkdir(dir, 0755);
 
-    char cmd[4*BUFSIZ];
+    char cmd[5*BUFSIZ];
     snprintf(cmd, sizeof(cmd),
-             "rm -f %s/fort.* %s/fort_frame_*.checkpoint %s/fort_frame_*.partition",
-             dir, dir, dir);
+             "rm -f %s/fort.* %s/fort_frame_*.checkpoint %s/fort_frame_*.partition"
+             "%s/gauge[0-9]*.txt",
+             dir, dir, dir, dir);
     if (system(cmd) != 0)
     {
         fclaw_global_essentialf("adjoint_forward: could not clear directory %s\n", dir);
@@ -127,7 +128,7 @@ void reinitialize(fclaw_global_t *glob, const char *dir, int iframe)
 /* ------------------------------- Overlap ----------------------------------- */
 
 /* Query points (one per cell centre) on the consumer mesh, and the geometry of
-   the producer, the mesh that has the data.  Used both ways: adjoint (P) ->
+   the producer, the mesh that has the data. Used both ways: adjoint (P) ->
    representer (c) and representer (P) -> model (C). */
 static
 void setup_overlap(fclaw_global_t *consumer_glob,
@@ -139,7 +140,7 @@ void setup_overlap(fclaw_global_t *consumer_glob,
     c->domain = consumer_glob->domain;
 
     /* AMR breaks the old one-query-per-patch assumption: a consumer patch may
-     * overlap several producer patches or a different refinement level.  Store
+     * overlap several producer patches or a different refinement level. Store
      * one query point per cell center so ForestClaw can find the correct leaf
      * patch on the producer side for each cell. */
     const fclaw_clawpatch_options_t *consumer_clawpatch_opt =
@@ -161,17 +162,28 @@ void setup_overlap(fclaw_global_t *consumer_glob,
     output_query_points(c);
 }
 
-/* alpha -> representer aux (and, while u->init_flag = 1, the representer itself) */
+/* alpha -> representer aux (and, with init_flag = 1, the representer itself) */
 static
 void map_adjoint_to_representer(fclaw_global_t *adjoint_glob,
                                 fclaw_global_t *representer_glob,
                                 overlap_forward_metadata_t *c,
                                 adjoint_geometry_t *geo,
-                                overlap_patch_user_t *u)
+                                int init_flag)
 {
     setup_overlap(representer_glob, adjoint_glob, c, geo);
+
+    /* The producer: the adjoint */
+    overlap_adjoint_metadata_t p;
+    p.glob = adjoint_glob;
+    p.adjoint_domain = adjoint_glob->domain;
+
+    overlap_patch_user_t u;
+    u.meta = &p;
+    u.geo = geo;
+
     fclaw_overlap_exchange(adjoint_glob->domain, c->query_points,
-                           overlap_interpolate_patch, u);
+                           overlap_interpolate_patch, &u);
+    overlap_set_representer_from_adjoint(c, init_flag);
 }
 
 /* q_model <- q_model + beta[j] r_j */
@@ -184,18 +196,110 @@ void map_representer_to_model(fclaw_global_t *representer_glob,
 {
     setup_overlap(model_glob, representer_glob, c, geo);
 
+    /* The producer: the representer */
+    overlap_adjoint_metadata_t p;
+    p.glob = representer_glob;
+    p.adjoint_domain = representer_glob->domain;
+
     overlap_patch_user_t u;
-    u.meta = c;
+    u.meta = &p;
     u.geo = geo;
-    u.rep_idx = j;
-    u.beta = beta;
+
     fclaw_overlap_exchange(representer_glob->domain, c->query_points,
-                           overlap_interpolate_rep_to_initial_estimate, &u);
+                           overlap_interpolate_patch, &u);
+    overlap_update_model_from_representer(c, beta[j]);
 }
 
 /* -------------------------------- Gauges ----------------------------------- */
 
-/* q_out[i] = the last value recorded at gauge i.  Returns the number of gauges:
+/* ForestClaw keeps a gauge's recorded values in a buffer on the process that
+   owns the gauge's patch, and prints and clears the buffer when it is full or
+   when the patch moves to another process (AMR under MPI). The value can then
+   be gone from memory by the time we read it, so each gauge keeps its last
+   record in g->user_data, copied as it is recorded. */
+typedef struct
+{
+    double t;       /* time of the record */
+    double q;       /* value recorded */
+} gauge_record_t;
+
+
+/* This is called by ForestClaw each time gauge g is recorded, on the process 
+   that owns its patch, in place of the default clawpatch update (see
+   keep_gauge_records). The clawpatch update interpolates q to the gauge and 
+   stores it in the buffer at next_buffer_location (incremented after this call).
+   We keep a copy of that entry. 
+*/
+static
+void record_gauge(fclaw_global_t *glob, fclaw_block_t *block, fclaw_patch_t *patch,
+                  int blockno, int patchno, double tcurr, fclaw_gauge_t *g)
+{
+    fclaw_clawpatch_gauges_update(glob, block, patch, blockno, patchno, tcurr, g);
+
+    int k;
+    fclaw_clawpatch_gauge_data_t **buffer;
+    fclaw_gauges_get_buffer(glob, g, &k, (void***) &buffer);
+    FCLAW_ASSERT(buffer[k] != NULL && buffer[k]->meqn == 1);
+
+    gauge_record_t *rec = (gauge_record_t *) fclaw_gauges_get_user_data(glob, g);
+    if (rec == NULL)
+    {
+        rec = FCLAW_ALLOC(gauge_record_t, 1);
+        fclaw_gauges_set_user_data(glob, g, rec);
+    }
+    rec->t = tcurr;
+    rec->q = buffer[k]->qvar[0];
+}
+
+
+/* Free the records kept by record_gauge. Call before the glob is finalized:
+   fclaw_finalize frees the gauges, and with them our only way to reach these. 
+*/
+static
+void free_gauge_records(fclaw_global_t *glob)
+{
+    fclaw_diagnostics_accumulator_t *acc = fclaw_diagnostics_get_acc(glob);
+    fclaw_gauge_acc_t *gauge_acc =
+        (acc == NULL) ? NULL : (fclaw_gauge_acc_t*) acc->gauge_accumulator;
+    if (gauge_acc == NULL || gauge_acc->gauges == NULL)
+    {
+        return;
+    }
+    for (int i = 0; i < gauge_acc->num_gauges; i++)
+    {
+        fclaw_gauge_t *g = &gauge_acc->gauges[i];
+        gauge_record_t *rec = (gauge_record_t *) fclaw_gauges_get_user_data(glob, g);
+        if (rec != NULL)
+        {
+            FCLAW_FREE(rec);
+            fclaw_gauges_set_user_data(glob, g, NULL);
+        }
+    }
+}
+
+/* Make ForestClaw call record_gauge for this glob's gauges. ForestClaw
+   allocates the gauges without zeroing them, so user_data is cleared first.
+   Call after the glob is initialized (that is when its gauges are created)
+   and before it runs. 
+*/
+static
+void keep_gauge_records(fclaw_global_t *glob)
+{
+    fclaw_gauges_vt(glob)->update = record_gauge;
+
+    fclaw_diagnostics_accumulator_t *acc = fclaw_diagnostics_get_acc(glob);
+    fclaw_gauge_acc_t *gauge_acc =
+        (acc == NULL) ? NULL : (fclaw_gauge_acc_t*) acc->gauge_accumulator;
+    if (gauge_acc != NULL && gauge_acc->gauges != NULL)
+    {
+        for (int i = 0; i < gauge_acc->num_gauges; i++)
+        {
+            fclaw_gauges_set_user_data(glob, &gauge_acc->gauges[i], NULL);
+        }
+    }
+}
+
+/* q_out[i] = the last value recorded at gauge i. Returns the number of gauges:
    0 if the run has none (output-gauges = F, or no gauges in gauges.data), and
    otherwise mdata, one gauge per observation. */
 static
@@ -217,38 +321,73 @@ int get_gauges(fclaw_global_t* glob, double *q_out, int mdata)
                      "gauges.data is stale: regenerate it.\n", num_gauges, mdata);
     }
 
+    /* Under MPI a gauge may have been recorded on several processes as its
+       patch moved. Its last record is the one at the latest time. Find that
+       time, then let the process that holds the record contribute the value. 
+    */
+
+    double *t_local = new double[num_gauges]; /* last record time here (or no_record) */
+    double *t_last  = new double[num_gauges];  /* latest record time, all processes */
+    double *q_local = new double[num_gauges];  /* value here if latest, else 0 */
+    int    *n_local = new int[num_gauges];     /* 1 if the latest record is here */
+    int    *n_all   = new int[num_gauges];     /* number of processes holding it (SUM of n_local which must be 1)  */
+
+    const double no_record = -1.0e300; /* 0  is a real time*/
     for (int i = 0; i < num_gauges; i++)
     {
-        fclaw_gauge_t *g = &gauge_acc->gauges[i];
+        gauge_record_t *rec = (gauge_record_t *)
+            fclaw_gauges_get_user_data(glob, &gauge_acc->gauges[i]);
+        t_local[i] = (rec == NULL) ? no_record : rec->t;
+    }
+    sc_MPI_Allreduce(t_local, t_last, num_gauges, sc_MPI_DOUBLE, sc_MPI_MAX, glob->mpicomm);
 
-        fclaw_clawpatch_gauge_data_t **gauge_buffer;
-        int kmax;
-        fclaw_gauges_get_buffer(glob, g, &kmax, (void***) &gauge_buffer);
-
-        /* The last value the gauge recorded */
-        fclaw_clawpatch_gauge_data_t *guser = NULL;
-        if (gauge_buffer != NULL && kmax > 0)
+    for (int i = 0; i < num_gauges; i++)
+    {
+        gauge_record_t *rec = (gauge_record_t *)
+            fclaw_gauges_get_user_data(glob, &gauge_acc->gauges[i]);
+        int holds_last_rec = 0;
+        if (rec != NULL)
         {
-            guser = gauge_buffer[kmax-1];
+            if (rec->t == t_last[i])
+            {
+                holds_last_rec = 1;
+            }
         }
-        if (guser == NULL)
+
+        q_local[i] = holds_last_rec ? rec->q : 0;
+        n_local[i] = holds_last_rec ? 1 : 0;
+    }
+    sc_MPI_Allreduce(q_local, q_out, num_gauges, sc_MPI_DOUBLE, sc_MPI_SUM, glob->mpicomm);
+    sc_MPI_Allreduce(n_local, n_all, num_gauges, sc_MPI_INT,    sc_MPI_SUM, glob->mpicomm);
+
+    for (int i = 0; i < num_gauges; i++)
+    {
+        if (n_all[i] == 0)
         {
             fclaw_abortf("get_gauges: gauge %d (observation %d) recorded no value; "
                          "check its time window in gauges.data against tm.\n",
                          i, i + 1);
         }
-
-        FCLAW_ASSERT(guser->meqn == 1);
-        q_out[i] = guser->qvar[0];
-        printf("get_gauges: q_out[%d] = %24.16e\n", i, q_out[i]);
+        if (n_all[i] > 1)
+        {
+            fclaw_abortf("get_gauges: gauge %d (observation %d) has a value on %d "
+                         "processes.\n", i, i + 1, n_all[i]);
+        }
+        fclaw_global_essentialf("get_gauges: q_out[%d] = %24.16e\n", i, q_out[i]);
     }
+
+    delete[] n_all;
+    delete[] n_local;
+    delete[] q_local;
+    delete[] t_last;
+    delete[] t_local;
     return num_gauges;
 }
 
 /* --------------------------------- Model ----------------------------------- */
 
 /* Run the model (the prior: no source term) to T in dir, with a checkpoint at
-   every output frame.  model_glob is not advanced again: compute_beta reads
+   every output frame. model_glob is not advanced again. compute_beta reads
    q_F at the gauges from it, and the q_hat stage restores it from the
    checkpoints. */
 static
@@ -426,15 +565,8 @@ void run_program(fclaw_global_t *model_glob,
         /* Adjoint options :  */
         fclaw_options_t *fclaw_opt_adjoint = fclaw_get_options(adjoint_glob[j]);
 
-        overlap_adjoint_metadata_t p;
-        overlap_patch_user_t u1;
-
-        p.glob = adjoint_glob[j];
-        p.adjoint_domain = adjoint_glob[j]->domain;
-
-        u1.init_flag = 1;
-        u1.meta = &p;
-        u1.geo = geo;
+        /* t = 0 : the first mapping also sets the representer's q from alpha */
+        int init_flag = 1;
 
         /* Run adjoint once and generate all N+1 restart files */
         fclaw_global_essentialf("-----------------------------------------\n");
@@ -445,11 +577,11 @@ void run_program(fclaw_global_t *model_glob,
         /*
             Adjoint checkpoints for frames 0..nout. When we call fclaw_run, we get frames 
             1..nout, and each one stores fclaw_run's context (frame number n, time t_curr, ...), 
-            so restarting from frame k resumes fclaw_run at tau_k.  Since output frame 0 
+            so restarting from frame k resumes fclaw_run at tau_k. Since output frame 0 
             corresponds to restart file 0, we need it as well. We write it with 
             fclaw_output_checkpoint(adjoint_glob, 0). It is used in the last interval of 
             the representer run, t in (T - dT, T], where the adjoint restarts from frame 0 
-            and steps through the time left, tau = T - t.  The catch is that frame 0 is written
+            and steps through the time left, tau = T - t. The catch is that frame 0 is written
             before fclaw_run has created a context, so we get and save an empty one first; 
             restarting from frame 0, fclaw_run then finds no stored values and starts from 
             n = 0, tau = 0.
@@ -500,7 +632,7 @@ void run_program(fclaw_global_t *model_glob,
 
         while (n_curr < nout)
         {
-            if (u1.init_flag == 1)
+            if (init_flag == 1)
             {
                 /* t = 0 : the representer starts from alpha at tau = T (frame nout) */
                 int restart_iframe = nout;
@@ -510,8 +642,8 @@ void run_program(fclaw_global_t *model_glob,
                 fclaw_global_essentialf("-----------------------------------------\n");
 
                 reinitialize(adjoint_glob[j], adj_dir, restart_iframe);
-                map_adjoint_to_representer(adjoint_glob[j], representer_glob[j], &c[j], geo, &u1);
-                u1.init_flag = 0;
+                map_adjoint_to_representer(adjoint_glob[j], representer_glob[j], &c[j], geo, 1);
+                init_flag = 0;
                 continue;
             }
 
@@ -563,7 +695,7 @@ void run_program(fclaw_global_t *model_glob,
                        obs_id, j, restart_iframe, adjoint_glob[j]->curr_time, tau);
 
                 /* After the advance, map adjoint to representer */
-                map_adjoint_to_representer(adjoint_glob[j], representer_glob[j], &c[j], geo, &u1);
+                map_adjoint_to_representer(adjoint_glob[j], representer_glob[j], &c[j], geo, 0);
 
                 if (n_new > n_curr)
                 {
@@ -629,12 +761,14 @@ void run_program(fclaw_global_t *model_glob,
 
     delete[] beta;
 
-    /* Finalize solvers */
+    /* Finalize solvers (the gauge records first; see free_gauge_records) */
     for (int j = 0; j < mdata; j++)
     {
         adjoint_finalize(adjoint_glob[j]);
+        free_gauge_records(representer_glob[j]);
         forward_finalize(representer_glob[j]);
     }
+    free_gauge_records(model_glob);
     model_finalize(model_glob);
 }
 
@@ -647,7 +781,7 @@ void run_program(fclaw_global_t *model_glob,
        adjoint     : adjoint_options_t, adjoint_create_domain
        representer : forward_options_t, forward_create_domain
 
-   Registering a section returns one struct per section name.  If every
+   Registering a section returns one struct per section name. If every
    adjoint (or representer) glob stored that struct, a change to one glob's
    options (e.g. nout, checkpoint) would change them all. So each glob gets
    its own copy of the options read from the ini file (the *_parsed structs),
@@ -669,6 +803,7 @@ fclaw_global_t* new_glob(fclaw_app_t *app,
                          void *user_parsed,
                          run_role_t role)
 {
+    /* Copy the option structs*/
     fclaw_options_t *fclaw_opt = new fclaw_options_t;
     memcpy(fclaw_opt, fclaw_parsed, sizeof(fclaw_options_t));
 
@@ -678,6 +813,7 @@ fclaw_global_t* new_glob(fclaw_app_t *app,
     fc2d_clawpack46_options_t *claw46_opt = new fc2d_clawpack46_options_t;
     memcpy(claw46_opt, claw46_parsed, sizeof(fc2d_clawpack46_options_t));
 
+    /* Create the glob abd attach the copies */
     fclaw_global_t *glob = fclaw_global_new(app);
     fclaw_options_store           (glob, fclaw_opt);
     fclaw_clawpatch_options_store (glob, clawpatch_opt);
@@ -829,6 +965,13 @@ main (int argc, char **argv)
             forward_initialize(representer_glob[j]); 
         }
         model_initialize(model_glob); 
+
+        /* Keep each gauge's last record (see record_gauge) */
+        keep_gauge_records(model_glob);
+        for (int j = 0; j < mdata; j++)
+        {
+            keep_gauge_records(representer_glob[j]);
+        }
 
         /* Set up overlap points in "c" */
         overlap_forward_metadata_t *c = new overlap_forward_metadata_t[mdata];
