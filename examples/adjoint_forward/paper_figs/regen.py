@@ -46,6 +46,12 @@ plt.rcParams.update({
     "axes.unicode_minus": False,
     "axes.formatter.use_mathtext": True,   # cmr10 wants mathtext for tick labels
 })
+# Set ticks inside the axes and colorbar, as in the Matlab figures
+plt.rcParams["xtick.direction"] = "in"
+plt.rcParams["ytick.direction"] = "in"
+# Keep the labels where outward ticks put them: pad = tick length + default pad
+plt.rcParams["xtick.major.pad"] = plt.rcParams["xtick.major.size"] + plt.rcParams["xtick.major.pad"]
+plt.rcParams["ytick.major.pad"] = plt.rcParams["ytick.major.size"] + plt.rcParams["ytick.major.pad"]
 FIG_W, FIG_H, DPI = 3.30, 3.03335, 300
 AX_FIELD = [0.165, 0.205, 0.610, 0.665]
 CB_POS   = [0.815, 0.205, 0.038, 0.665]
