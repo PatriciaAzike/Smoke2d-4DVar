@@ -45,6 +45,12 @@ plt.rcParams.update({
     "axes.unicode_minus": False,
     "axes.formatter.use_mathtext": True,   # cmr10 wants mathtext for tick labels
 })
+# Ticks inside the axes and colorbar, as in the Matlab figures
+plt.rcParams["xtick.direction"] = "in"
+plt.rcParams["ytick.direction"] = "in"
+# Keep the labels where outward ticks put them: pad = tick length + default pad
+plt.rcParams["xtick.major.pad"] = plt.rcParams["xtick.major.size"] + plt.rcParams["xtick.major.pad"]
+plt.rcParams["ytick.major.pad"] = plt.rcParams["ytick.major.size"] + plt.rcParams["ytick.major.pad"]
 XM, YM = 1.5, 1.0                     # the impulse location (not drawn)
 
 FIG_W, FIG_H, DPI = 3.30, 3.03335, 300        # style_panel.m
