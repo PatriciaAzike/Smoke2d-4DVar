@@ -57,12 +57,19 @@ void interpolate_point(fclaw_global_t *glob,
     dx = (patch->xupper - patch->xlower)/mx;
     dy = (patch->yupper - patch->ylower)/my;
 
-    double avar[maux];
+    /* After a restart only q is restored from the checkpoint and setaux
+       refills only the velocities, so the representer's alpha slot in aux
+       is unset (i.e., it holds whatever was in memory), and interpolating
+       it can raise a floating-point exception (stopped by trapfpe). Thus we
+       set maux_used = 0, so no aux is interpolated. Only qvar is needed.
+    */
+    int maux_used = 0;
+    double avar[1];
     int gauge_num = -1;
     fclaw_clawpatch_vtable_t *clawpatch_vt = fclaw_clawpatch_vt(glob);
     clawpatch_vt->d2->fort_gauge_update(&gauge_num, &mx, &my, &mbc, &meqn,
                                         &xlower, &ylower, &dx, &dy,
-                                        q, &maux, aux, &xref, &yref,
+                                        q, &maux_used, aux, &xref, &yref,
                                         qvar, avar);
 }
 
