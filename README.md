@@ -1,5 +1,8 @@
 # Smoke2d-4DVar
 
+[![DOI](https://zenodo.org/badge/1396344854.svg)](https://doi.org/10.5281/zenodo.24023311)
+
+
 Representer-Based Data Assimilation on Adaptively Refined Meshes for Idealized Wildfire Smoke Transport
 
 Smoke2d-4DVar is a computational model for idealized two-dimensional wildfire smoke transport. A key feature of the model is that it implements 4D-Var data assimilation using the representer method (Bennett, 2002).   Smoke2d-4DVar is built on [ForestClaw](https://github.com/ForestClaw/forestclaw),
