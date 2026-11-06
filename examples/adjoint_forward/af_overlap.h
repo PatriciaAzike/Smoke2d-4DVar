@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2012-2023 Carsten Burstedde, Donna Calhoun, Scott Aiton,
+Copyright (c) 2012-2026 Carsten Burstedde, Donna Calhoun, Scott Aiton,
 Hannes Brandt, Patricia Azike
 All rights reserved.
 
@@ -65,7 +65,7 @@ typedef struct overlap_forward_metadata
 
 
 
-/* One overlap point is one target cell center.  The point stores its physical
+/* One overlap point is one target cell center. The point stores its physical
  * coordinates for the ForestClaw overlap search, and also the target cell
  * location so the interpolated value can be written back into the right q/aux
  * entry after the source patch is found. */
@@ -74,7 +74,7 @@ typedef struct overlap_point
   size_t  lnum;
   double  xy[2];  // In [ax,bx]x[ay,by] forward domain coordinates
 
-  /* Target cell indices and patch dimensions.  ForestClaw gives us the patch
+  /* Target cell indices and patch dimensions. ForestClaw gives us the patch
    * pointer during query construction, but only this overlap_point_t survives
    * through fclaw_overlap_exchange. */
   int i;
@@ -89,6 +89,14 @@ typedef struct overlap_point
   int meqn;
   double* q_forward;  /* Store representer/model solution updates here */
 
+  /* The producer's value at this point (meqn = 1) filled by the producer
+   * callback. In parallel, the producer's patch may be on another process.
+   * fclaw_overlap_exchange sends the point there to be filled and returns
+   * it, with the value, to the consumer's query array. The consumer then
+   * writes it into its own aux_forward / q_forward. Those are addresses on
+   * the consumer's process, so only the consumer may use them. */
+  double qvar[1];
+
   /* This is needed so we can interpolate from the adjoint patch. */
   overlap_adjoint_metadata_t   adjoint_metadata;
 }
@@ -102,13 +110,11 @@ typedef struct adjoint_geometry
 }
 adjoint_geometry_t;
 
+/* Passed through fclaw_overlap_exchange to overlap_interpolate_patch */
 typedef struct overlap_patch_user
 {
-    int init_flag;
-    void *meta;
-    adjoint_geometry_t *geo;
-    int rep_idx;
-    double *beta;
+    void *meta;                 /* overlap_adjoint_metadata_t of the producer */
+    adjoint_geometry_t *geo;    /* geometry of the producer */
 } overlap_patch_user_t;
 
 
@@ -127,10 +133,14 @@ int overlap_interpolate_patch (fclaw_domain_t * domain,
                                int blockno, int patchno, 
                                void *point, void *user);
 
-int overlap_interpolate_rep_to_initial_estimate (fclaw_domain_t *representer_domain, 
-                               fclaw_patch_t  *representer_patch,
-                               int blockno, int patchno, 
-                               void *point, void *user);
+/* Consumer side, after fclaw_overlap_exchange: alpha carried back in the
+   query points -> representer aux, and with init_flag also representer q */
+void overlap_set_representer_from_adjoint (overlap_forward_metadata_t *c,
+                                           int init_flag);
+
+/* Consumer side, after fclaw_overlap_exchange: q_model += beta_j r_j */
+void overlap_update_model_from_representer (overlap_forward_metadata_t *c,
+                                            double beta_j);
                          
 void output_query_points (overlap_forward_metadata_t * c);
 
